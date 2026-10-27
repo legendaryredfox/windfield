@@ -52,6 +52,8 @@ local function install()
         setPosition = function(self, x, y) self.x, self.y = x, y end,
         getFixtures = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,
+        probe = function() return 'body' end,
+        probeFixtureBody = function() return 'body' end,
         getWorldPoint = function(self, x, y) return x + self.x, y + self.y end,
         setLinearVelocity = function(self, x, y) self.vx, self.vy = x, y end,
         getLinearVelocity = function(self) return self.vx or 0, self.vy or 0 end,
@@ -62,6 +64,8 @@ local function install()
     })
 
     local newFixtureObject = class('Fixture', {
+        probe = function() return 'fixture' end,
+        probeFixtureBody = function() return 'fixture' end,
         setCategory = function(self, ...) self.category = {...} end,
         setMask = function(self, ...) self.mask = {...} end,
         setUserData = function(self, data) self.data = data end,
@@ -73,11 +77,15 @@ local function install()
         destroy = function(self) remove(self.body.fixtures, self) end,
     })
 
-    local polygonMethods = {getPoints = function(self) return unpack(self.points) end}
+    local polygonMethods = {
+        getPoints = function(self) return unpack(self.points) end,
+        probe = function() return 'shape' end,
+    }
     local newPolygon = class('PolygonShape', polygonMethods)
-    local newEdge = class('EdgeShape', {getPoints = polygonMethods.getPoints})
-    local newChain = class('ChainShape', {getPoints = polygonMethods.getPoints})
+    local newEdge = class('EdgeShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe})
+    local newChain = class('ChainShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe})
     local newCircle = class('CircleShape', {
+        probe = polygonMethods.probe,
         getRadius = function(self) return self.radius end,
         getPoint = function() return 0, 0 end,
     })

@@ -51,6 +51,26 @@ function love.load()
     end)
     check('area queries over a circle collider', circle_ok, circle_err)
 
+    local proxy_names = require('fixtures.proxy_keys')
+    local sample = world:newRectangleCollider(10, 10, 20, 20)
+    local missing = {}
+    for _, name in ipairs(proxy_names.collider) do
+        if type(sample[name]) ~= 'function' then missing[#missing + 1] = name end
+    end
+    for _, name in ipairs(proxy_names.world) do
+        if type(world[name]) ~= 'function' then missing[#missing + 1] = 'world.' .. name end
+    end
+    check('proxied methods still resolve', #missing == 0, table.concat(missing, ', '))
+    local px, py = sample:getPosition()
+    sample:setLinearVelocity(3, 4)
+    local vx, vy = sample:getLinearVelocity()
+    sample:setSensor(true)
+    local sensor_on = sample:isSensor()
+    sample:setSensor(false)
+    check('proxied calls reach the right object', px == 20 and py == 20 and vx == 3 and vy == 4 and sensor_on and sample:getDensity() > 0)
+    check('collider keeps its own fields', sample.type == 'Rectangle' and sample.body ~= nil and sample.shape:type() == 'PolygonShape')
+    sample:destroy()
+
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 

@@ -57,6 +57,36 @@ test('addCollisionClass rejects duplicates and setCollisionClass rejects unknown
     raises(function() collider:setCollisionClass('Nope') end, 'unknown class')
 end)
 
+test('collider methods resolve to the shape, then the fixture, then the body', function()
+    local world = newWorld()
+    local rectangle = world:newRectangleCollider(0, 0, 10, 10)
+    eq(rectangle:probe(), 'shape')
+    eq(rectangle:probeFixtureBody(), 'fixture')
+    eq(rectangle:getPosition(), 5, 'body method')
+    eq(rectangle.getRadius, nil, 'shape specific method on another shape type')
+    eq(rectangle.nonexistent, nil, 'unknown name')
+    eq(world:newCircleCollider(0, 0, 3):getRadius(), 3, 'circle method')
+end)
+
+test('colliders do not carry a copy of every method', function()
+    local collider = newWorld():newRectangleCollider(0, 0, 10, 10)
+    local keys = 0
+    for _ in pairs(collider) do keys = keys + 1 end
+    truthy(keys < 30, 'keys on a collider: ' .. keys)
+end)
+
+test('proxied names never shadow class methods', function()
+    local names = dofile('tests/fixtures/proxy_keys.lua')
+    for _, name in ipairs(names.collider) do
+        if name ~= 'preSolve' and name ~= 'postSolve' then
+            eq(rawget(wf.Collider, name), nil, 'Collider.' .. name)
+        end
+    end
+    for _, name in ipairs(names.world) do
+        eq(rawget(wf.World, name), nil, 'World.' .. name)
+    end
+end)
+
 test('every collider type can be created', function()
     local world = newWorld()
     eq(world:newCircleCollider(10, 10, 5).type, 'Circle')

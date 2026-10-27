@@ -27,8 +27,29 @@ local path = ... .. '.'
 local wf = {} 
 wf.Math = require(path .. 'mlib.mlib') 
 
+-- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
+local proxy_excluded = {__gc = true, __eq = true, __index = true, __tostring = true, destroy = true, type = true, typeOf = true}
+
+local function newProxyIndex(class, parts)
+    local index = {}
+    return setmetatable(index, {__index = function(_, key)
+        local method = class[key]
+        if method ~= nil then return method end
+        if proxy_excluded[key] then return end
+        for _, part in ipairs(parts) do
+            local fn = part.methods[key]
+            if fn then
+                local field = part.field
+                local proxy = function(self, ...) return fn(self[field], ...) end
+                index[key] = proxy
+                return proxy
+            end
+        end
+    end})
+end
+
 local World = {}
-World.__index = World 
+local world_metatable
 
 function wf.newWorld(xg, yg, sleep)
     local world = wf.World.new(wf, xg, yg, sleep)
@@ -36,16 +57,6 @@ function wf.newWorld(xg, yg, sleep)
     world.box2d_world:setCallbacks(world.collisionOnEnter, world.collisionOnExit, world.collisionPre, world.collisionPost)
     world:collisionClear()
     world:addCollisionClass('Default')
-
-    -- Points all box2d_world functions to this wf.World object
-    -- This means that the user can call world:setGravity for instance without having to say world.box2d_world:setGravity
-    for k, v in pairs(world.box2d_world.__index) do 
-        if k ~= '__gc' and k ~= '__eq' and k ~= '__index' and k ~= '__tostring' and k ~= 'update' and k ~= 'destroy' and k ~= 'type' and k ~= 'typeOf' then
-            world[k] = function(self, ...)
-                return v(self.box2d_world, ...)
-            end
-        end
-    end
 
     return world
 end
@@ -66,7 +77,8 @@ function World.new(wf, xg, yg, sleep)
     love.physics.setMeter(32)
     self.box2d_world = love.physics.newWorld(xg, yg, sleep) 
 
-    return setmetatable(self, World)
+    world_metatable = world_metatable or {__index = newProxyIndex(World, {{field = 'box2d_world', methods = self.box2d_world.__index}})}
+    return setmetatable(self, world_metatable)
 end
 
 function World:update(dt)
@@ -697,7 +709,7 @@ end
 
 
 local Collider = {}
-Collider.__index = Collider
+local collider_metatables = {}
 
 local generator = love.math.newRandomGenerator(os.time())
 local function UUID()
@@ -782,31 +794,16 @@ function Collider.new(world, collider_type, ...)
     self.preSolve = function() end
     self.postSolve = function() end
 
-    -- Points all body, fixture and shape functions to this wf.Collider object
-    -- This means that the user can call collider:setLinearVelocity for instance without having to say collider.body:setLinearVelocity
-    for k, v in pairs(self.body.__index) do 
-        if k ~= '__gc' and k ~= '__eq' and k ~= '__index' and k ~= '__tostring' and k ~= 'destroy' and k ~= 'type' and k ~= 'typeOf' then
-            self[k] = function(self, ...)
-                return v(self.body, ...)
-            end
-        end
-    end
-    for k, v in pairs(self.fixture.__index) do 
-        if k ~= '__gc' and k ~= '__eq' and k ~= '__index' and k ~= '__tostring' and k ~= 'destroy' and k ~= 'type' and k ~= 'typeOf' then
-            self[k] = function(self, ...)
-                return v(self.fixture, ...)
-            end
-        end
-    end
-    for k, v in pairs(self.shape.__index) do 
-        if k ~= '__gc' and k ~= '__eq' and k ~= '__index' and k ~= '__tostring' and k ~= 'destroy' and k ~= 'type' and k ~= 'typeOf' then
-            self[k] = function(self, ...)
-                return v(self.shape, ...)
-            end
-        end
+    local shape_type = shape:type()
+    if not collider_metatables[shape_type] then
+        collider_metatables[shape_type] = {__index = newProxyIndex(Collider, {
+            {field = 'shape', methods = shape.__index},
+            {field = 'fixture', methods = fixture.__index},
+            {field = 'body', methods = self.body.__index},
+        })}
     end
 
-    return setmetatable(self, Collider)
+    return setmetatable(self, collider_metatables[shape_type])
 end
 
 function Collider:collisionEventsClear()
