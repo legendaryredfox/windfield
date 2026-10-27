@@ -9,7 +9,7 @@
    * [Create collision classes](#create-collision-classes)
    * [Capture collision events](#capture-collision-events)
    * [Query the world](#query-the-world)
-* [Examples & Tips](#examples-tips)
+* [Examples & Tips](#examples--tips)
    * [Checking collisions between game objects](#checking-collisions-between-game-objects)
    * [One-way Platforms](#one-way-platforms)
 * [Documentation](#documentation)
@@ -25,14 +25,16 @@
       * [newPolygonCollider](#newpolygoncollidervertices)
       * [newLineCollider](#newlinecolliderx1-y1-x2-y2)
       * [newChainCollider](#newchaincollidervertices-loop)
-      * [queryCircleArea](#querycircleareax-y-r-collision_class_name)
+      * [queryCircleArea](#querycircleareax-y-r-collision_class_names)
       * [queryRectangleArea](#queryrectangleareax-y-w-h-collision_class_names)
       * [queryPolygonArea](#querypolygonareavertices-collision_class_names)
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
-      * [addJoint](#addjointjoint_type)
+      * [addJoint](#addjointjoint_type-)
       * [removeJoint](#removejointjoint)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
+      * [onEnter](#onenterclass_a-class_b-callback)
+      * [onExit](#onexitclass_a-class_b-callback)
    * [Collider](#collider)
       * [destroy](#destroy-1)
       * [setCollisionClass](#setcollisionclasscollision_class_name)
@@ -40,11 +42,13 @@
       * [getEnterCollisionData](#getentercollisiondataother_collision_class_name)
       * [exit](#exitother_collision_class_name)
       * [getExitCollisionData](#getexitcollisiondataother_collision_class_name)
+      * [getEnters](#getentersother_collision_class_name)
+      * [getExits](#getexitsother_collision_class_name)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
       * [setPreSolve](#setpresolvecallback)
       * [setPostSolve](#setpostsolvecallback)
-      * [addShape](#addshapeshape_name-shape_type)
+      * [addShape](#addshapeshape_name-shape_type-)
       * [removeShape](#removeshapeshape_name)
       * [setObject](#setobjectobject)
       * [getObject](#getobject)
@@ -395,7 +399,7 @@ world:destroy()
 
 #### `:addCollisionClass(collision_class_name, collision_class)`
 
-Adds a new collision class to the World. Collision classes are attached to Colliders and defined their behaviors in terms of which ones will physically ignore each other and which ones will generate collision events between each other. All collision classes must be added before any Collider is created. If `world:setExplicitCollisionEvents` is set to false (the default setting) then `enter`, `exit`, `pre` and `post` settings don't need to be specified, otherwise they do.
+Adds a new collision class to the World. Collision classes are attached to Colliders and defined their behaviors in terms of which ones will physically ignore each other and which ones will generate collision events between each other. Classes can be added at any time; colliders that already exist are updated. If `world:setExplicitCollisionEvents` is set to false (the default setting) then `enter`, `exit`, `pre` and `post` settings don't need to be specified, otherwise they do.
 ```lua
 world:addCollisionClass('Player', {ignores = {'NPC', 'Enemy'}})
 ```
@@ -688,6 +692,51 @@ Arguments:
 
 ---
 
+#### `:onEnter(class_a, class_b, callback)`
+
+Registers a function that is called when a collider of `class_a` starts touching a collider of `class_b`. Callbacks run after the physics step finished, in the order the contacts were reported, so it is safe to create or destroy colliders inside them. A pair of colliders of the same class is reported once.
+
+```lua
+local handle = world:onEnter('Player', 'Coin', function(player, coin, data)
+    coin:destroy()
+end)
+handle:remove()
+```
+
+Arguments:
+
+* `class_a` `(string)` - The collision class of the first collider
+* `class_b` `(string)` - The collision class of the second collider
+* `callback` `(function)` - Called as `callback(collider_a, collider_b, data)`. `data` has the same fields as the collision data returned by `collider:getEnterCollisionData`, where `collider` is `collider_b`
+
+Returns:
+
+* `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
+#### `:onExit(class_a, class_b, callback)`
+
+Same as `onEnter`, but called when the colliders stop touching.
+
+```lua
+world:onExit('Player', 'Platform', function(player, platform, data)
+    print('left the platform')
+end)
+```
+
+Arguments:
+
+* `class_a` `(string)` - The collision class of the first collider
+* `class_b` `(string)` - The collision class of the second collider
+* `callback` `(function)` - Called as `callback(collider_a, collider_b, data)`
+
+Returns:
+
+* `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
 ## Collider
 
 On top of containing all functions exposed in this documentation it also contains all functions of a [Body](https://love2d.org/wiki/Body), [Fixture](https://love2d.org/wiki/Fixture) and [Shape](https://love2d.org/wiki/Shape).
@@ -701,6 +750,8 @@ Destroys the collider and removes it from the world. This must be called wheneve
 ```lua
 collider:destroy()
 ```
+
+If it is called while the physics step is running (for example from a `preSolve` or `postSolve` callback), the collider is destroyed as soon as the step ends. Calling it twice is harmless.
 
 ---
 
@@ -759,7 +810,7 @@ Arguments:
 
 Returns:
 
-* `collision_data` `(table[Collider, Contact])` - A table containing the Collider and the [Contact](https://love2d.org/wiki/Contact) generated from the last enter collision event
+* `collision_data` `(table)` - The data of the last enter collision event. The table has the fields `collider` (the other collider), `contact` (the [Contact](https://love2d.org/wiki/Contact), only valid during the physics step: do not call its functions later), `nx` and `ny` (the contact normal) and `x1`, `y1`, `x2`, `y2` (the contact points, `nil` when the contact has none).
 
 ---
 
@@ -802,7 +853,47 @@ Arguments:
 
 Returns:
 
-* `collision_data` `(table[Collider, Contact])` - A table containing the Collider and the [Contact](https://love2d.org/wiki/Contact) generated from the last exit collision event
+* `collision_data` `(table)` - The data of the last exit collision event. The table has the fields `collider` (the other collider), `contact` (the [Contact](https://love2d.org/wiki/Contact), only valid during the physics step: do not call its functions later), `nx` and `ny` (the contact normal) and `x1`, `y1`, `x2`, `y2` (the contact points, `nil` when the contact has none).
+
+---
+
+#### `:getEnters(other_collision_class_name)`
+
+Gets every enter event of this collider with colliders of a collision class on the current frame. `enter` only reports whether at least one happened; this returns all of them.
+
+```lua
+for _, collision_data in ipairs(player:getEnters('Coin')) do
+    collision_data.collider:destroy()
+end
+```
+
+Arguments:
+
+* `other_collision_class_name` `(string)` - The name of the target collision class
+
+Returns:
+
+* `collision_data_list` `(table[table])` - One table per enter event, with the fields described in `getEnterCollisionData`. Empty when there were none
+
+---
+
+#### `:getExits(other_collision_class_name)`
+
+Same as `getEnters`, but for exit events.
+
+```lua
+for _, collision_data in ipairs(player:getExits('Platform')) do
+    print('left', collision_data.collider)
+end
+```
+
+Arguments:
+
+* `other_collision_class_name` `(string)` - The name of the target collision class
+
+Returns:
+
+* `collision_data_list` `(table[table])` - One table per exit event, with the fields described in `getEnterCollisionData`. Empty when there were none
 
 ---
 
@@ -847,7 +938,7 @@ Arguments:
 
 Returns:
 
-* `collision_data_list` `(table[table[Collider, Contact]])` - A table containing multiple Colliders and [Contacts](https://love2d.org/wiki/Contact) generated from the last stay collision event. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned.
+* `collision_data_list` `(table[table])` - The data of every collider this collider is currently touching, one table per collider with the fields described in `getEnterCollisionData`. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned. Contacts are tracked from the enter and exit events, so `enter` does not have to be called for `stay` to work.
 
 ---
 
