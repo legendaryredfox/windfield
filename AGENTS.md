@@ -48,4 +48,4 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 
 - `is_sensor_memo` is reset and existing colliders are re-masked whenever a class is added (`collisionClassesSet`), so adding classes late is supported; it costs one pass over all bodies.
 - A collision class name must exist before `setCollisionClass`; the code raises `error(...)` otherwise. Keep error messages in that form.
-- Collision callbacks run inside `world:update` and Box2D forbids changing the world there. Library code must not destroy bodies or create colliders from the `enter/exit/pre/post` paths; users defer such work until after `update`.
+- Collision callbacks run inside `world:update` and Box2D forbids changing the world there. `Collider:destroy` defers itself during the step; library code must still not create colliders or change bodies from the `enter/exit/pre/post` paths, and users should do that work in `World:onEnter/onExit` handlers or after `update`.
