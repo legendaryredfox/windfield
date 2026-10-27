@@ -540,6 +540,8 @@ Returns:
 
 Queries a circular area around a point for colliders.
 
+All the area queries (`queryCircleArea`, `queryRectangleArea`, `queryPolygonArea`) follow the same rules. A collider is returned when its shape overlaps the area, with one exception: if the whole area lies inside a polygon, rectangle or other polygon based collider, that collider is not returned. Circle colliders are returned for any overlap, including an area completely inside the circle. Sensors are never returned. `queryLine` returns every collider the line crosses.
+
 ```lua
 colliders_1 = world:queryCircleArea(100, 100, 50, {'Enemy', 'NPC'})
 colliders_2 = world:queryCircleArea(100, 100, 50, {'All', except = {'Player'}})

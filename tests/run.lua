@@ -4,6 +4,7 @@ package.path = './?.lua;./?/init.lua;' .. package.path
 
 love = require('tests.mock_love')()
 
+local unpack = table.unpack or unpack
 local wf = require('windfield')
 
 local failures, count = 0, 0
@@ -272,6 +273,31 @@ test('area queries match the reference implementation', function()
         end
     end
     eq(compared, 25 * 12 * 4, 'comparisons made')
+end)
+
+test('area query rules', function()
+    local failed_cases = {}
+    for _, case in ipairs(dofile('tests/fixtures/query_cases.lua')) do
+        local name, shape, query, expected = case[1], case[2], case[3], case[4]
+        if not case.line then
+            local world = newWorld()
+            if shape.kind == 'rectangle' then
+                world:newRectangleCollider(shape[1], shape[2], shape[3], shape[4])
+            else
+                world:newCircleCollider(shape[1], shape[2], shape[3])
+            end
+            local found
+            if query.kind == 'circle' then
+                found = world:queryCircleArea(query[1], query[2], query[3])
+            elseif query.kind == 'rectangle' then
+                found = world:queryRectangleArea(query[1], query[2], query[3], query[4])
+            else
+                found = world:queryPolygonArea({unpack(query)})
+            end
+            if (#found > 0) ~= expected then failed_cases[#failed_cases + 1] = name end
+        end
+    end
+    eq(table.concat(failed_cases, '; '), '', 'cases that differ from the documented rules')
 end)
 
 test('enter, stay and exit events on solid fixtures', function()

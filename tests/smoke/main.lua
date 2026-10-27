@@ -3,6 +3,7 @@
 love.setDeprecationOutput(true)
 love.filesystem.setIdentity('windfield-smoke')
 
+local unpack = table.unpack or unpack
 local wf = require('windfield')
 
 local failed = 0
@@ -77,6 +78,30 @@ function love.load()
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})
     late_world:addCollisionClass('Y', {ignores = {'X'}})
     late_world:newRectangleCollider(50, 100, 100, 10, {collision_class = 'Y', body_type = 'static'})
+
+    local failed_cases = {}
+    for _, case in ipairs(require('fixtures.query_cases')) do
+        local name, shape, query, expected = case[1], case[2], case[3], case[4]
+        local case_world = wf.newWorld(0, 0, true)
+        if shape.kind == 'rectangle' then
+            case_world:newRectangleCollider(shape[1], shape[2], shape[3], shape[4], {body_type = 'static'})
+        else
+            case_world:newCircleCollider(shape[1], shape[2], shape[3], {body_type = 'static'})
+        end
+        local found
+        if query.kind == 'circle' then
+            found = case_world:queryCircleArea(query[1], query[2], query[3])
+        elseif query.kind == 'rectangle' then
+            found = case_world:queryRectangleArea(query[1], query[2], query[3], query[4])
+        elseif query.kind == 'polygon' then
+            found = case_world:queryPolygonArea({unpack(query)})
+        else
+            found = case_world:queryLine(query[1], query[2], query[3], query[4])
+        end
+        if (#found > 0) ~= expected then failed_cases[#failed_cases + 1] = name end
+        case_world:destroy()
+    end
+    check('area query rules', #failed_cases == 0, table.concat(failed_cases, '; '))
 
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
