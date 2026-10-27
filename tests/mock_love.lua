@@ -74,6 +74,19 @@ local function install()
         isSensor = function(self) return self.sensor == true end,
         getShape = function(self) return self.shape end,
         getBody = function(self) return self.body end,
+        getBoundingBox = function(self)
+            local shape, body = self.shape, self.body
+            if shape.radius then
+                return body.x - shape.radius, body.y - shape.radius, body.x + shape.radius, body.y + shape.radius
+            end
+            local points = shape.points
+            local x1, y1, x2, y2 = math.huge, math.huge, -math.huge, -math.huge
+            for i = 1, #points, 2 do
+                x1, x2 = math.min(x1, points[i] + body.x), math.max(x2, points[i] + body.x)
+                y1, y2 = math.min(y1, points[i + 1] + body.y), math.max(y2, points[i + 1] + body.y)
+            end
+            return x1, y1, x2, y2
+        end,
         destroy = function(self) remove(self.body.fixtures, self) end,
     })
 

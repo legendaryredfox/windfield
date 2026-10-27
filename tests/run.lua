@@ -208,6 +208,72 @@ test('event tables are created only for colliders that receive events', function
     eq(next(player.collision_events), nil, 'events cleared')
 end)
 
+test('area queries match the reference implementation', function()
+    local reference = dofile('tests/reference_queries.lua')
+    math.randomseed(1234)
+
+    local function key(colliders)
+        local ids = {}
+        for i, collider in ipairs(colliders) do ids[i] = collider:getObject() end
+        table.sort(ids)
+        return table.concat(ids, ',')
+    end
+
+    local function regular(cx, cy, radius, sides)
+        local vertices = {}
+        for i = 0, sides - 1 do
+            local angle = i * 2 * math.pi / sides
+            vertices[#vertices + 1] = cx + radius * math.cos(angle)
+            vertices[#vertices + 1] = cy + radius * math.sin(angle)
+        end
+        return vertices
+    end
+
+    local filters = {false, {'All'}, {'A', 'B'}, {'All', except = {'A'}}, {'C'}}
+    local names = {'Default', 'A', 'B', 'C'}
+    local compared = 0
+
+    for round = 1, 25 do
+        local world = newWorld()
+        for _, name in ipairs({'A', 'B', 'C'}) do world:addCollisionClass(name) end
+        for i = 1, 25 do
+            local settings = {collision_class = names[math.random(#names)]}
+            local x, y, kind = math.random(0, 300), math.random(0, 300), math.random(4)
+            local collider
+            if kind == 1 then
+                collider = world:newCircleCollider(x, y, math.random(3, 25), settings)
+            elseif kind == 2 then
+                collider = world:newRectangleCollider(x, y, math.random(5, 60), math.random(5, 60), settings)
+            elseif kind == 3 then
+                collider = world:newPolygonCollider(regular(x, y, math.random(8, 30), math.random(3, 6)), settings)
+            else
+                collider = world:newRectangleCollider(x, y, math.random(10, 40), math.random(10, 40), settings)
+                collider:addShape('extra', 'CircleShape', 8)
+            end
+            collider:setObject(i)
+        end
+
+        for _ = 1, 12 do
+            local filter = filters[math.random(#filters)] or nil
+            local x, y = math.random(-20, 340), math.random(-20, 340)
+            local sides = math.random(3, 6)
+            local radius, w, h = math.random(5, 90), math.random(10, 160), math.random(10, 160)
+            local polygon = regular(x, y, math.random(10, 90), sides)
+            local results = {
+                circle = {world:queryCircleArea(x, y, radius, filter), reference.queryCircleArea(world, x, y, radius, filter)},
+                rectangle = {world:queryRectangleArea(x, y, w, h, filter), reference.queryRectangleArea(world, x, y, w, h, filter)},
+                polygon = {world:queryPolygonArea(polygon, filter), reference.queryPolygonArea(world, polygon, filter)},
+                line = {world:queryLine(x, y, x + w, y + h, filter), reference.queryLine(world, x, y, x + w, y + h, filter)},
+            }
+            for kind, pair in pairs(results) do
+                eq(key(pair[1]), key(pair[2]), kind .. ' query, round ' .. round)
+                compared = compared + 1
+            end
+        end
+    end
+    eq(compared, 25 * 12 * 4, 'comparisons made')
+end)
+
 test('enter, stay and exit events on solid fixtures', function()
     local world = newWorld()
     world:addCollisionClass('Player')

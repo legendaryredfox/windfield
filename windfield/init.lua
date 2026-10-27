@@ -70,6 +70,21 @@ function World.new(wf, xg, yg, sleep)
     self.query_debug_drawing_enabled = false
     self.explicit_collision_events = false
     self.dirty_colliders = {}
+    self.query_results = {}
+    self.query_callback = function(fixture)
+        if not fixture:isSensor() then
+            local results = self.query_results
+            results[#results + 1] = fixture:getUserData()
+        end
+        return true
+    end
+    self.ray_callback = function(fixture)
+        if not fixture:isSensor() then
+            local results = self.query_results
+            results[#results + 1] = fixture:getUserData()
+        end
+        return 1
+    end
     self.collision_classes = {}
     self.masks = {}
     self.is_sensor_memo = {}
@@ -559,13 +574,28 @@ end
 
 -- Internal AABB box2d query used before going for more specific and precise computations.
 function World:_queryBoundingBox(x1, y1, x2, y2)
-    local colliders = {}
-    local callback = function(fixture)
-        if not fixture:isSensor() then table.insert(colliders, fixture:getUserData()) end
-        return true
+    self.box2d_world:queryBoundingBox(x1, y1, x2, y2, self.query_callback)
+    return self.query_results
+end
+
+local all_collision_classes = {'All'}
+
+local function clear(list)
+    for i = #list, 1, -1 do list[i] = nil end
+end
+
+-- Returns a set of allowed class names, or nil when every class is allowed.
+function World:_collisionClassFilter(collision_classes)
+    if collision_classes[1] == 'All' then
+        if not collision_classes.except then return nil end
+        local allowed = {}
+        for class, _ in pairs(self.collision_classes) do allowed[class] = true end
+        for _, class in ipairs(collision_classes.except) do allowed[class] = nil end
+        return allowed
     end
-    self.box2d_world:queryBoundingBox(x1, y1, x2, y2, callback)
-    return colliders
+    local allowed = {}
+    for _, class in ipairs(collision_classes) do allowed[class] = true end
+    return allowed
 end
 
 function World:collisionClassInCollisionClassesList(collision_class, collision_classes)
@@ -603,62 +633,79 @@ local function fixtureCircle(body, fixture)
 end
 
 function World:queryCircleArea(x, y, radius, collision_class_names)
-    if not collision_class_names then collision_class_names = {'All'} end
     if self.query_debug_drawing_enabled then table.insert(self.query_debug_draw, {type = 'circle', x = x, y = y, r = radius, frames = self.draw_query_for_n_frames}) end
-    
-    local colliders = self:_queryBoundingBox(x-radius, y-radius, x+radius, y+radius) 
+
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local polygon = self.wf.Math.polygon
+    local colliders = self:_queryBoundingBox(x-radius, y-radius, x+radius, y+radius)
     local outs = {}
-    for _, collider in ipairs(colliders) do
-        if self:collisionClassInCollisionClassesList(collider.collision_class, collision_class_names) then
-            for _, fixture in ipairs(collider.body:getFixtures()) do
+    for i = 1, #colliders do
+        local collider = colliders[i]
+        if not allowed or allowed[collider.collision_class] then
+            for _, fixture in pairs(collider.fixtures) do
                 local cx, cy, cr = fixtureCircle(collider.body, fixture)
                 local hit
                 if cx then
                     hit = (x - cx)^2 + (y - cy)^2 <= (radius + cr)^2
                 else
-                    hit = self.wf.Math.polygon.getCircleIntersection(x, y, radius, {collider.body:getWorldPoints(fixture:getShape():getPoints())})
+                    hit = polygon.getCircleIntersection(x, y, radius, {collider.body:getWorldPoints(fixture:getShape():getPoints())})
                 end
                 if hit then
-                    table.insert(outs, collider)
+                    outs[#outs + 1] = collider
                     break
                 end
             end
         end
     end
+    clear(colliders)
     return outs
 end
 
-function World:_polygonQueryHit(vertices, body, fixture)
-    local cx, cy, cr = fixtureCircle(body, fixture)
-    if cx then
-        return self.wf.Math.polygon.isCircleInside(cx, cy, cr, vertices) or self.wf.Math.polygon.getCircleIntersection(cx, cy, cr, vertices)
+-- rect is {x1, y1, x2, y2} for axis aligned queries: a shape whose bounding box lies strictly inside it is a hit, and one whose bounding box is strictly apart from it is a miss, without the exact test.
+function World:_polygonQueryHit(vertices, body, fixture, rect)
+    local shape = fixture:getShape()
+    local shape_type = shape:type()
+    if rect and shape_type ~= 'ChainShape' then
+        local x1, y1, x2, y2 = fixture:getBoundingBox(1)
+        if x2 < rect[1] or x1 > rect[3] or y2 < rect[2] or y1 > rect[4] then return false end
+        if x1 > rect[1] and y1 > rect[2] and x2 < rect[3] and y2 < rect[4] then return true end
     end
-    return self.wf.Math.polygon.isPolygonInside(vertices, {body:getWorldPoints(fixture:getShape():getPoints())})
+    local polygon = self.wf.Math.polygon
+    if shape_type == 'CircleShape' then
+        local cx, cy = body:getWorldPoint(shape:getPoint())
+        local cr = shape:getRadius()
+        return polygon.isCircleInside(cx, cy, cr, vertices) or polygon.getCircleIntersection(cx, cy, cr, vertices)
+    end
+    return polygon.isPolygonInside(vertices, {body:getWorldPoints(shape:getPoints())})
 end
 
 function World:queryRectangleArea(x, y, w, h, collision_class_names)
-    if not collision_class_names then collision_class_names = {'All'} end
     if self.query_debug_drawing_enabled then table.insert(self.query_debug_draw, {type = 'rectangle', x = x, y = y, w = w, h = h, frames = self.draw_query_for_n_frames}) end
 
-    local colliders = self:_queryBoundingBox(x, y, x+w, y+h) 
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local vertices = {x, y, x+w, y, x+w, y+h, x, y+h}
+    local rect = (w > 0 and h > 0) and {x, y, x+w, y+h} or nil
+    local colliders = self:_queryBoundingBox(x, y, x+w, y+h)
     local outs = {}
-    for _, collider in ipairs(colliders) do
-        if self:collisionClassInCollisionClassesList(collider.collision_class, collision_class_names) then
-            for _, fixture in ipairs(collider.body:getFixtures()) do
-                if self:_polygonQueryHit({x, y, x+w, y, x+w, y+h, x, y+h}, collider.body, fixture) then
-                    table.insert(outs, collider)
+    for i = 1, #colliders do
+        local collider = colliders[i]
+        if not allowed or allowed[collider.collision_class] then
+            for _, fixture in pairs(collider.fixtures) do
+                if self:_polygonQueryHit(vertices, collider.body, fixture, rect) then
+                    outs[#outs + 1] = collider
                     break
                 end
             end
         end
     end
+    clear(colliders)
     return outs
 end
 
 function World:queryPolygonArea(vertices, collision_class_names)
-    if not collision_class_names then collision_class_names = {'All'} end
     if self.query_debug_drawing_enabled then table.insert(self.query_debug_draw, {type = 'polygon', vertices = vertices, frames = self.draw_query_for_n_frames}) end
 
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
     local cx, cy = self.wf.Math.polygon.getCentroid(vertices)
     local d_max = 0
     for i = 1, #vertices, 2 do
@@ -667,38 +714,38 @@ function World:queryPolygonArea(vertices, collision_class_names)
     end
     local colliders = self:_queryBoundingBox(cx-d_max, cy-d_max, cx+d_max, cy+d_max)
     local outs = {}
-    for _, collider in ipairs(colliders) do
-        if self:collisionClassInCollisionClassesList(collider.collision_class, collision_class_names) then
-            for _, fixture in ipairs(collider.body:getFixtures()) do
+    for i = 1, #colliders do
+        local collider = colliders[i]
+        if not allowed or allowed[collider.collision_class] then
+            for _, fixture in pairs(collider.fixtures) do
                 if self:_polygonQueryHit(vertices, collider.body, fixture) then
-                    table.insert(outs, collider)
+                    outs[#outs + 1] = collider
                     break
                 end
             end
         end
     end
+    clear(colliders)
     return outs
 end
 
 function World:queryLine(x1, y1, x2, y2, collision_class_names)
-    if not collision_class_names then collision_class_names = {'All'} end
     if self.query_debug_drawing_enabled then 
         table.insert(self.query_debug_draw, {type = 'line', x1 = x1, y1 = y1, x2 = x2, y2 = y2, frames = self.draw_query_for_n_frames}) 
     end
 
-    local colliders = {}
-    local callback = function(fixture, ...)
-        if not fixture:isSensor() then table.insert(colliders, fixture:getUserData()) end
-        return 1
-    end
-    self.box2d_world:rayCast(x1, y1, x2, y2, callback)
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    self.box2d_world:rayCast(x1, y1, x2, y2, self.ray_callback)
 
+    local colliders = self.query_results
     local outs = {}
-    for _, collider in ipairs(colliders) do
-        if self:collisionClassInCollisionClassesList(collider.collision_class, collision_class_names) then
-            table.insert(outs, collider)
+    for i = 1, #colliders do
+        local collider = colliders[i]
+        if not allowed or allowed[collider.collision_class] then
+            outs[#outs + 1] = collider
         end
     end
+    clear(colliders)
     return outs
 end
 
