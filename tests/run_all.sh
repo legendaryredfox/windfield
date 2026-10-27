@@ -18,7 +18,7 @@ fi
 if command -v love >/dev/null 2>&1; then
     echo 'smoke:'
     if command -v xvfb-run >/dev/null 2>&1; then
-        output=$(xvfb-run -a sh tests/smoke/run.sh 2>&1)
+        output=$(timeout 120 xvfb-run -a sh tests/smoke/run.sh 2>&1)
     else
         echo 'xvfb-run not found, skipping the smoke script'
         exit $failed

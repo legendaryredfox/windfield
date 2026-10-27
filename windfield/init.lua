@@ -69,6 +69,7 @@ function World.new(wf, xg, yg, sleep)
     self.draw_query_for_n_frames = 10
     self.query_debug_drawing_enabled = false
     self.explicit_collision_events = false
+    self.dirty_colliders = {}
     self.collision_classes = {}
     self.masks = {}
     self.is_sensor_memo = {}
@@ -217,11 +218,9 @@ function World:collisionClear()
 end
 
 function World:collisionEventsClear()
-    local bodies = self.box2d_world:getBodies()
-    for _, body in ipairs(bodies) do
-        local collider = body:getFixtures()[1]:getUserData()
-        collider:collisionEventsClear()
-    end
+    local dirty = self.dirty_colliders
+    for i = 1, #dirty do dirty[i]:collisionEventsClear() end
+    for i = #dirty, 1, -1 do dirty[i] = nil end
 end
 
 function World:addCollisionEnter(type1, type2)
@@ -389,6 +388,20 @@ local function collIf(collision_class_name1, collision_class_name2, a, b)
     else return false end
 end
 
+local function addCollisionEvent(collider, other_collision_class_name, event)
+    local events = collider.collision_events[other_collision_class_name]
+    if not events then
+        events = {}
+        collider.collision_events[other_collision_class_name] = events
+    end
+    events[#events + 1] = event
+    if not collider.has_events then
+        collider.has_events = true
+        local dirty = collider.world.dirty_colliders
+        dirty[#dirty + 1] = collider
+    end
+end
+
 function World.collisionOnEnter(fixture_a, fixture_b, contact)
     local a, b = fixture_a:getUserData(), fixture_b:getUserData()
 
@@ -397,9 +410,9 @@ function World.collisionOnEnter(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_enter.sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    table.insert(a.collision_events[collision.type2], {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
                     if collision.type1 == collision.type2 then 
-                        table.insert(b.collision_events[collision.type1], {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
                     end
                 end
             end
@@ -410,9 +423,9 @@ function World.collisionOnEnter(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_enter.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    table.insert(a.collision_events[collision.type2], {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
                     if collision.type1 == collision.type2 then 
-                        table.insert(b.collision_events[collision.type1], {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
                     end
                 end
             end
@@ -428,9 +441,9 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_exit.sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    table.insert(a.collision_events[collision.type2], {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
                     if collision.type1 == collision.type2 then 
-                        table.insert(b.collision_events[collision.type1], {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
                     end
                 end
             end
@@ -441,9 +454,9 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_exit.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    table.insert(a.collision_events[collision.type2], {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
                     if collision.type1 == collision.type2 then 
-                        table.insert(b.collision_events[collision.type1], {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
                     end
                 end
             end
@@ -733,6 +746,7 @@ function Collider.new(world, collider_type, ...)
     self.sensors = {}
 
     self.collision_events = {}
+    self.has_events = false
     self.collision_stay = {}
     self.enter_collision_data = {}
     self.exit_collision_data = {}
@@ -808,9 +822,7 @@ end
 
 function Collider:collisionEventsClear()
     self.collision_events = {}
-    for other, _ in pairs(self.world.collision_classes) do
-        self.collision_events[other] = {}
-    end
+    self.has_events = false
 end
 
 function Collider:setCollisionClass(collision_class_name)
