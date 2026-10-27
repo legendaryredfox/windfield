@@ -1,0 +1,227 @@
+-- Run from the repository root: lua tests/run.lua
+-- Works on luajit, lua5.1, lua5.4 and lua5.5.
+package.path = './?.lua;./?/init.lua;' .. package.path
+
+love = require('tests.mock_love')()
+
+local wf = require('windfield')
+
+local failures, count = 0, 0
+
+local function test(name, fn)
+    count = count + 1
+    local ok, err = pcall(fn)
+    if not ok then
+        failures = failures + 1
+        print('FAIL ' .. name .. '\n     ' .. tostring(err))
+    end
+end
+
+local function eq(actual, expected, label)
+    if actual ~= expected then
+        error((label or 'value') .. ': expected ' .. tostring(expected) .. ', got ' .. tostring(actual), 2)
+    end
+end
+
+local function truthy(value, label)
+    if not value then error((label or 'value') .. ': expected a truthy value', 2) end
+end
+
+local function raises(fn, label)
+    if pcall(fn) then error((label or 'call') .. ': expected an error', 2) end
+end
+
+local function newWorld()
+    return wf.newWorld(0, 100, true)
+end
+
+test('newWorld has the Default class and forwards Box2D methods', function()
+    local world = newWorld()
+    truthy(world.collision_classes.Default, 'Default class')
+    world:setGravity(1, 2)
+    local gx, gy = world:getGravity()
+    eq(gx, 1, 'gx')
+    eq(gy, 2, 'gy')
+end)
+
+test('addCollisionClass rejects duplicates and setCollisionClass rejects unknown names', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    raises(function() world:addCollisionClass('Player') end, 'duplicate class')
+    local collider = world:newCircleCollider(0, 0, 5)
+    raises(function() collider:setCollisionClass('Nope') end, 'unknown class')
+end)
+
+test('every collider type can be created', function()
+    local world = newWorld()
+    eq(world:newCircleCollider(10, 10, 5).type, 'Circle')
+    eq(world:newRectangleCollider(10, 10, 20, 20).type, 'Rectangle')
+    eq(world:newBSGRectangleCollider(10, 10, 20, 20, 4).type, 'BSGRectangle')
+    eq(world:newPolygonCollider({0, 0, 10, 0, 5, 10}).type, 'Polygon')
+    eq(world:newLineCollider(0, 0, 10, 10).type, 'Line')
+end)
+
+test('rectangle collider body sits at the rectangle center and honors settings', function()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    local collider = world:newRectangleCollider(100, 200, 40, 20, {collision_class = 'Wall', body_type = 'static'})
+    local x, y = collider:getPosition()
+    eq(x, 120, 'x')
+    eq(y, 210, 'y')
+    eq(collider.collision_class, 'Wall')
+    eq(collider.body.body_type, 'static')
+end)
+
+test('ignores produce category and mask entries', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Ghost', {ignores = {'Player'}})
+    local ghost, player = world.masks.Ghost, world.masks.Player
+    truthy(ghost and player, 'masks')
+    local ignored = false
+    for _, category in ipairs(ghost.masks) do
+        if category == player.categories[1] then ignored = true end
+    end
+    truthy(ignored, 'Ghost mask lists the Player category')
+    local collider = world:newCircleCollider(0, 0, 5, {collision_class = 'Ghost'})
+    eq(collider.fixture.category[1], ghost.categories[1], 'fixture category')
+end)
+
+test('setCollisionClass reapplies category and mask', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    local collider = world:newCircleCollider(0, 0, 5)
+    collider:setCollisionClass('Player')
+    eq(collider.collision_class, 'Player')
+    eq(collider.fixture.category[1], world.masks.Player.categories[1])
+end)
+
+test('queries return matching colliders', function()
+    local world = newWorld()
+    world:addCollisionClass('Crate')
+    world:addCollisionClass('Wall')
+    local crate = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Crate'})
+    local wall = world:newRectangleCollider(300, 300, 50, 50, {collision_class = 'Wall'})
+
+    local found = world:queryRectangleArea(90, 90, 80, 80, {'All'})
+    eq(#found, 1, 'rectangle query count')
+    eq(found[1], crate, 'rectangle query result')
+
+    eq(#world:queryRectangleArea(0, 0, 10, 10), 0, 'rectangle query far away')
+
+    found = world:queryCircleArea(125, 100, 10, {'Crate'})
+    eq(#found, 1, 'circle query count')
+
+    found = world:queryPolygonArea({80, 80, 200, 80, 140, 200})
+    eq(#found, 1, 'polygon query count')
+    eq(found[1], crate, 'polygon query result')
+
+    found = world:queryLine(0, 0, 500, 500, {'All', except = {'Crate'}})
+    eq(#found, 1, 'line query count')
+    eq(found[1], wall, 'line query result')
+end)
+
+test('enter, stay and exit events on solid fixtures', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Coin')
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local coin = world:newCircleCollider(0, 0, 5, {collision_class = 'Coin'})
+    world:update(0)
+
+    love._fire(world, 'enter', player.fixture, coin.fixture)
+    truthy(player:enter('Coin'), 'enter')
+    eq(player:getEnterCollisionData('Coin').collider, coin, 'enter data')
+
+    world:update(0)
+    eq(player:enter('Coin'), nil, 'events cleared after update')
+    truthy(player:stay('Coin'), 'stay')
+
+    love._fire(world, 'exit', player.fixture, coin.fixture)
+    truthy(player:exit('Coin'), 'exit')
+    eq(player:getExitCollisionData('Coin').collider, coin, 'exit data')
+    eq(player:stay('Coin'), nil, 'stay ends after exit')
+end)
+
+test('ignored class pairs get events from the sensor fixtures', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Ghost', {ignores = {'Player'}})
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local ghost = world:newCircleCollider(0, 0, 5, {collision_class = 'Ghost'})
+    world:update(0)
+
+    love._fire(world, 'enter', player.fixture, ghost.fixture)
+    eq(player:enter('Ghost'), nil, 'solid fixtures of an ignored pair')
+
+    love._fire(world, 'enter', player.sensors.main, ghost.sensors.main)
+    truthy(player:enter('Ghost'), 'sensor fixtures')
+end)
+
+test('pre and post solve callbacks are stored', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    local pre, post = function() end, function() end
+    collider:setPreSolve(pre)
+    collider:setPostSolve(post)
+    eq(collider.preSolve, pre)
+    eq(collider.postSolve, post)
+end)
+
+test('addShape and removeShape manage extra fixtures', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    collider:addShape('extra', 'CircleShape', 3)
+    truthy(collider.shapes.extra and collider.fixtures.extra and collider.sensors.extra, 'extra shape')
+    raises(function() collider:addShape('extra', 'CircleShape', 3) end, 'duplicate shape name')
+    collider:removeShape('extra')
+    eq(collider.shapes.extra, nil, 'shape removed')
+    eq(#collider.body:getFixtures(), 2, 'fixtures left on the body')
+end)
+
+test('object accessors', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    local object = {}
+    collider:setObject(object)
+    eq(collider:getObject(), object)
+end)
+
+test('joints can be added and removed', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(10, 10, 5)
+    local joint = world:addJoint('MouseJoint', collider, 20, 20)
+    eq(#world:getJoints(), 1, 'joints after add')
+    world:removeJoint(joint)
+    eq(#world:getJoints(), 0, 'joints after remove')
+end)
+
+test('draw runs with every shape kind, a joint and query debug', function()
+    local world = newWorld()
+    world:newRectangleCollider(30, 30, 10, 10)
+    world:newLineCollider(0, 0, 10, 10)
+    world:addJoint('MouseJoint', world:newPolygonCollider({0, 0, 10, 0, 5, 10}), 1, 1)
+    world:setQueryDebugDrawing(true)
+    world:queryCircleArea(30, 30, 5)
+    world:queryRectangleArea(0, 0, 5, 5)
+    world:queryPolygonArea({0, 0, 10, 0, 5, 10})
+    world:queryLine(0, 0, 10, 10)
+    world:newCircleCollider(10, 10, 5)
+    world:draw()
+    world:draw(128)
+end)
+
+test('destroy releases colliders and the world', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    local box2d_world = world.box2d_world
+    collider:destroy()
+    eq(#box2d_world.bodies, 0, 'bodies after collider destroy')
+    world:newCircleCollider(0, 0, 5)
+    world:destroy()
+    eq(world.box2d_world, nil, 'box2d world cleared')
+    truthy(box2d_world.destroyed, 'box2d world destroyed')
+end)
+
+print(string.format('%d tests, %d failed', count, failures))
+os.exit(failures == 0 and 0 or 1)
