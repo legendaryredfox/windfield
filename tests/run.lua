@@ -236,6 +236,13 @@ test('draw uses 0-1 colors and maps the 0-255 alpha argument', function()
     end
 end)
 
+test('a failing constructor leaves no body behind', function()
+    local world = newWorld()
+    raises(function() world:newChainCollider({10, 10, 10, 20, 20, 20}, nil) end, 'bad chain')
+    eq(#world.box2d_world.bodies, 0, 'bodies after failure')
+    world:update(0)
+end)
+
 test('chain collider takes vertices and loop', function()
     local world = newWorld()
     local collider = world:newChainCollider({10, 10, 10, 20, 20, 20}, true)
