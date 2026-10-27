@@ -221,6 +221,14 @@ test('draw uses 0-1 colors and maps the 0-255 alpha argument', function()
     end
 end)
 
+test('chain collider takes vertices and loop', function()
+    local world = newWorld()
+    local collider = world:newChainCollider({10, 10, 10, 20, 20, 20}, true)
+    eq(collider.type, 'Chain')
+    eq(collider.shape.loop, true, 'loop')
+    eq(#collider.shape.points, 6, 'point count')
+end)
+
 test('draw runs with every shape kind, a joint and query debug', function()
     local world = newWorld()
     world:newRectangleCollider(30, 30, 10, 10)
