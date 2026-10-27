@@ -35,6 +35,11 @@ local function newWorld()
     return wf.newWorld(0, 100, true)
 end
 
+test('the module does not leak globals', function()
+    eq(rawget(_G, 'World'), nil, 'World global')
+    eq(rawget(_G, 'Collider'), nil, 'Collider global')
+end)
+
 test('newWorld has the Default class and forwards Box2D methods', function()
     local world = newWorld()
     truthy(world.collision_classes.Default, 'Default class')

@@ -22,11 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ]]--
 
+local unpack = table.unpack or unpack
 local path = ... .. '.' 
 local wf = {} 
 wf.Math = require(path .. 'mlib.mlib') 
 
-World = {}
+local World = {}
 World.__index = World 
 
 function wf.newWorld(xg, yg, sleep)
