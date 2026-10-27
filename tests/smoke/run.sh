@@ -6,4 +6,5 @@ dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT
 cp tests/smoke/main.lua "$dir/main.lua"
 cp -r windfield "$dir/windfield"
+cp -r tests/fixtures "$dir/fixtures"
 love "$dir"

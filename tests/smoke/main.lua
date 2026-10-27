@@ -3,12 +3,16 @@
 love.setDeprecationOutput(true)
 love.filesystem.setIdentity('windfield-smoke')
 
+local unpack = table.unpack or unpack
 local wf = require('windfield')
 
 local failed = 0
 local frame = 0
 local world, ground, player, ghost
+local late_world, early_collider
+local destroy_world, victim
 local seen = {}
+local callbacks = {enter = 0, exit = 0}
 
 local function check(name, ok, detail)
     if not ok then failed = failed + 1 end
@@ -21,6 +25,9 @@ function love.load()
     world:addCollisionClass('Player')
     world:addCollisionClass('Ghost', {ignores = {'Player'}})
     world:setQueryDebugDrawing(true)
+
+    world:onEnter('Player', 'Ground', function() callbacks.enter = callbacks.enter + 1 end)
+    world:onExit('Player', 'Ghost', function() callbacks.exit = callbacks.exit + 1 end)
 
     ground = world:newRectangleCollider(50, 300, 300, 20, {collision_class = 'Ground', body_type = 'static'})
     ghost = world:newRectangleCollider(180, 220, 40, 40, {collision_class = 'Ghost', body_type = 'static'})
@@ -51,13 +58,73 @@ function love.load()
     end)
     check('area queries over a circle collider', circle_ok, circle_err)
 
+    local proxy_names = require('fixtures.proxy_keys')
+    local sample = world:newRectangleCollider(10, 10, 20, 20)
+    local missing = {}
+    for _, name in ipairs(proxy_names.collider) do
+        if type(sample[name]) ~= 'function' then missing[#missing + 1] = name end
+    end
+    for _, name in ipairs(proxy_names.world) do
+        if type(world[name]) ~= 'function' then missing[#missing + 1] = 'world.' .. name end
+    end
+    check('proxied methods still resolve', #missing == 0, table.concat(missing, ', '))
+    local px, py = sample:getPosition()
+    sample:setLinearVelocity(3, 4)
+    local vx, vy = sample:getLinearVelocity()
+    sample:setSensor(true)
+    local sensor_on = sample:isSensor()
+    sample:setSensor(false)
+    check('proxied calls reach the right object', px == 20 and py == 20 and vx == 3 and vy == 4 and sensor_on and sample:getDensity() > 0)
+    check('collider keeps its own fields', sample.type == 'Rectangle' and sample.body ~= nil and sample.shape:type() == 'PolygonShape')
+    sample:destroy()
+
+    late_world = wf.newWorld(0, 500, true)
+    late_world:addCollisionClass('X')
+    early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})
+    late_world:addCollisionClass('Y', {ignores = {'X'}})
+    late_world:newRectangleCollider(50, 100, 100, 10, {collision_class = 'Y', body_type = 'static'})
+
+    local failed_cases = {}
+    for _, case in ipairs(require('fixtures.query_cases')) do
+        local name, shape, query, expected = case[1], case[2], case[3], case[4]
+        local case_world = wf.newWorld(0, 0, true)
+        if shape.kind == 'rectangle' then
+            case_world:newRectangleCollider(shape[1], shape[2], shape[3], shape[4], {body_type = 'static'})
+        else
+            case_world:newCircleCollider(shape[1], shape[2], shape[3], {body_type = 'static'})
+        end
+        local found
+        if query.kind == 'circle' then
+            found = case_world:queryCircleArea(query[1], query[2], query[3])
+        elseif query.kind == 'rectangle' then
+            found = case_world:queryRectangleArea(query[1], query[2], query[3], query[4])
+        elseif query.kind == 'polygon' then
+            found = case_world:queryPolygonArea({unpack(query)})
+        else
+            found = case_world:queryLine(query[1], query[2], query[3], query[4])
+        end
+        if (#found > 0) ~= expected then failed_cases[#failed_cases + 1] = name end
+        case_world:destroy()
+    end
+    check('area query rules', #failed_cases == 0, table.concat(failed_cases, '; '))
+
+    destroy_world = wf.newWorld(0, 500, true)
+    destroy_world:addCollisionClass('Hitter')
+    destroy_world:addCollisionClass('Victim')
+    local hitter = destroy_world:newRectangleCollider(50, 100, 100, 10, {collision_class = 'Hitter', body_type = 'static'})
+    victim = destroy_world:newCircleCollider(100, 50, 5, {collision_class = 'Victim'})
+    hitter:setPreSolve(function(_, other) other:destroy() end)
+
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 
 function love.update(dt)
     frame = frame + 1
     world:update(1 / 60)
+    late_world:update(1 / 60)
+    destroy_world:update(1 / 60)
     if frame == 150 then world:queryRectangleArea(40, 290, 320, 40, {'Ground'}) end
+    if #player:getEnters('Ground') > 0 then seen.ground_enters = (seen.ground_enters or 0) + 1 end
     if player:enter('Ground') then seen.ground_enter = true end
     if player:enter('Ghost') then seen.ghost_enter = true end
     if player:exit('Ghost') then seen.ghost_exit = true end
@@ -77,6 +144,13 @@ function love.draw()
         check('sensor enter event (ignored pair)', seen.ghost_enter)
         check('sensor exit event (ignored pair)', seen.ghost_exit)
         check('stay after enter', player:stay('Ground'))
+        check('collider destroyed from preSolve is gone after the step', victim.body == nil and #destroy_world:getBodies() == 1, #destroy_world:getBodies())
+        check('world:onEnter callback', callbacks.enter == 1, callbacks.enter)
+        check('world:onExit callback', callbacks.exit == 1, callbacks.exit)
+        check('getEnters reports the ground contact', (seen.ground_enters or 0) >= 1, seen.ground_enters)
+        local data = player:getEnterCollisionData('Ground')
+        check('contact geometry readable after the step', data and type(data.nx) == 'number' and type(data.ny) == 'number' and type(data.x1) == 'number', data and data.nx)
+        check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
         love.event.quit(failed == 0 and 0 or 1)
     end
 end
