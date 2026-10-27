@@ -53,6 +53,8 @@
 
 # Quick Start
 
+Windfield targets LÖVE 11.5. The source is also compatible with Lua 5.1 to 5.5.
+
 Place the `windfield` folder inside your project and require it:
 
 ```lua
@@ -377,7 +379,7 @@ world:draw(128) -- semi transparent drawing
 
 Arguments:
 
-* `alpha=255` `(number)` - The optional alpha value to use when drawing, defaults to 255
+* `alpha=255` `(number)` - The optional alpha value to use when drawing, from 0 to 255, defaults to 255
 
 ---
 
