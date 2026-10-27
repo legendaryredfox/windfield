@@ -49,6 +49,7 @@ end
 function love.update(dt)
     frame = frame + 1
     world:update(1 / 60)
+    if frame == 150 then world:queryRectangleArea(40, 290, 320, 40, {'Ground'}) end
     if player:enter('Ground') then seen.ground_enter = true end
     if player:enter('Ghost') then seen.ghost_enter = true end
     if player:exit('Ghost') then seen.ghost_exit = true end

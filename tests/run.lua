@@ -201,6 +201,26 @@ test('joints can be added and removed', function()
     eq(#world:getJoints(), 0, 'joints after remove')
 end)
 
+test('draw uses 0-1 colors and maps the 0-255 alpha argument', function()
+    local world = newWorld()
+    world:newRectangleCollider(0, 0, 10, 10)
+    love._colors = {}
+    world:draw()
+    for _, color in ipairs(love._colors) do
+        for _, component in ipairs(color) do
+            truthy(component >= 0 and component <= 1, 'color component ' .. tostring(component))
+        end
+    end
+    love._colors = {}
+    world:draw(128)
+    local drawn = #love._colors - 1
+    truthy(drawn >= 1, 'draw colors')
+    for i = 1, drawn do
+        local alpha = love._colors[i][4]
+        truthy(math.abs(alpha - 128 / 255) < 1e-9, 'alpha ' .. tostring(alpha))
+    end
+end)
+
 test('draw runs with every shape kind, a joint and query debug', function()
     local world = newWorld()
     world:newRectangleCollider(30, 30, 10, 10)
