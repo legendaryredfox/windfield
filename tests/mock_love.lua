@@ -29,7 +29,12 @@ local function install()
 
     local newWorldObject = class('World', {
         setCallbacks = function(self, ...) self.callbacks = {...} end,
-        update = function() end,
+        update = function(self)
+            self.locked = true
+            local ok, err = pcall(function() if self.step_hook then self.step_hook() end end)
+            self.locked = false
+            if not ok then error(err, 0) end
+        end,
         getBodies = function(self) return self.bodies end,
         getJoints = function(self) return self.joints end,
         setGravity = function(self, x, y) self.gx, self.gy = x, y end,
@@ -58,6 +63,7 @@ local function install()
         setLinearVelocity = function(self, x, y) self.vx, self.vy = x, y end,
         getLinearVelocity = function(self) return self.vx or 0, self.vy or 0 end,
         destroy = function(self)
+            if self.world.locked then error('Box2D world is locked', 2) end
             remove(self.world.bodies, self)
             self.destroyed = true
         end,

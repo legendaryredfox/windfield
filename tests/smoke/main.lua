@@ -10,6 +10,7 @@ local failed = 0
 local frame = 0
 local world, ground, player, ghost
 local late_world, early_collider
+local destroy_world, victim
 local seen = {}
 local callbacks = {enter = 0, exit = 0}
 
@@ -107,6 +108,13 @@ function love.load()
     end
     check('area query rules', #failed_cases == 0, table.concat(failed_cases, '; '))
 
+    destroy_world = wf.newWorld(0, 500, true)
+    destroy_world:addCollisionClass('Hitter')
+    destroy_world:addCollisionClass('Victim')
+    local hitter = destroy_world:newRectangleCollider(50, 100, 100, 10, {collision_class = 'Hitter', body_type = 'static'})
+    victim = destroy_world:newCircleCollider(100, 50, 5, {collision_class = 'Victim'})
+    hitter:setPreSolve(function(_, other) other:destroy() end)
+
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 
@@ -114,6 +122,7 @@ function love.update(dt)
     frame = frame + 1
     world:update(1 / 60)
     late_world:update(1 / 60)
+    destroy_world:update(1 / 60)
     if frame == 150 then world:queryRectangleArea(40, 290, 320, 40, {'Ground'}) end
     if #player:getEnters('Ground') > 0 then seen.ground_enters = (seen.ground_enters or 0) + 1 end
     if player:enter('Ground') then seen.ground_enter = true end
@@ -135,6 +144,7 @@ function love.draw()
         check('sensor enter event (ignored pair)', seen.ghost_enter)
         check('sensor exit event (ignored pair)', seen.ghost_exit)
         check('stay after enter', player:stay('Ground'))
+        check('collider destroyed from preSolve is gone after the step', victim.body == nil and #destroy_world:getBodies() == 1, #destroy_world:getBodies())
         check('world:onEnter callback', callbacks.enter == 1, callbacks.enter)
         check('world:onExit callback', callbacks.exit == 1, callbacks.exit)
         check('getEnters reports the ground contact', (seen.ground_enters or 0) >= 1, seen.ground_enters)

@@ -78,18 +78,22 @@ function World.new(wf, xg, yg, sleep)
     self.collision_handlers = {}
     self.has_collision_handlers = false
     self.step_events = {}
+    self.stepping = false
+    self.destroy_queue = {}
     self.query_results = {}
     self.query_callback = function(fixture)
-        if not fixture:isSensor() then
+        local collider = fixture:getUserData()
+        if collider and not collider.destroy_pending and not fixture:isSensor() then
             local results = self.query_results
-            results[#results + 1] = fixture:getUserData()
+            results[#results + 1] = collider
         end
         return true
     end
     self.ray_callback = function(fixture)
-        if not fixture:isSensor() then
+        local collider = fixture:getUserData()
+        if collider and not collider.destroy_pending and not fixture:isSensor() then
             local results = self.query_results
-            results[#results + 1] = fixture:getUserData()
+            results[#results + 1] = collider
         end
         return 1
     end
@@ -107,7 +111,12 @@ end
 
 function World:update(dt)
     self:collisionEventsClear()
+    self.stepping = true
     self.box2d_world:update(dt)
+    self.stepping = false
+    local queue = self.destroy_queue
+    for i = 1, #queue do queue[i]:_destroy() end
+    for i = #queue, 1, -1 do queue[i] = nil end
     if self.has_collision_handlers then self:_dispatchCollisionEvents() end
 end
 
@@ -1084,7 +1093,19 @@ function Collider:removeShape(shape_name)
     self.sensors[shape_name] = nil
 end
 
+-- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
 function Collider:destroy()
+    if not self.body or self.destroy_pending then return end
+    local world = self.world
+    if world.stepping then
+        self.destroy_pending = true
+        table.insert(world.destroy_queue, self)
+        return
+    end
+    self:_destroy()
+end
+
+function Collider:_destroy()
     self.collision_stay = nil
     self.enter_collision_data = nil
     self.exit_collision_data = nil

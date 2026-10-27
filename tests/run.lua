@@ -543,6 +543,23 @@ test('draw runs with every shape kind, a joint and query debug', function()
     world:draw(128)
 end)
 
+test('destroying a collider during the step is deferred until the step ends', function()
+    local world = newWorld()
+    local victim = world:newCircleCollider(0, 0, 5)
+    local survivor = world:newCircleCollider(10, 10, 5)
+    world.box2d_world.step_hook = function()
+        victim:destroy()
+        victim:destroy()
+    end
+    world:update(0)
+    eq(#world.box2d_world.bodies, 1, 'bodies after the step')
+    eq(victim.body, nil, 'victim body')
+    truthy(survivor.body, 'survivor body')
+    world.box2d_world.step_hook = nil
+    victim:destroy()
+    eq(#world.box2d_world.bodies, 1, 'destroying twice is harmless')
+end)
+
 test('destroy releases colliders and the world', function()
     local world = newWorld()
     local collider = world:newCircleCollider(0, 0, 5)
