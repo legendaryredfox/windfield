@@ -52,6 +52,7 @@ local function install()
         setPosition = function(self, x, y) self.x, self.y = x, y end,
         getFixtures = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,
+        getWorldPoint = function(self, x, y) return x + self.x, y + self.y end,
         setLinearVelocity = function(self, x, y) self.vx, self.vy = x, y end,
         getLinearVelocity = function(self) return self.vx or 0, self.vy or 0 end,
         destroy = function(self)

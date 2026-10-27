@@ -43,6 +43,14 @@ function love.load()
     found = world:queryLine(200, 0, 200, 400, {'Ground'})
     check('queryLine', #found == 1 and found[1] == ground, #found)
 
+    local circle_ok, circle_err = pcall(function()
+        assert(world:queryCircleArea(205, 100, 10, {'Player'})[1] == player, 'circle query')
+        assert(world:queryRectangleArea(190, 90, 20, 20, {'Player'})[1] == player, 'rectangle query')
+        assert(world:queryPolygonArea({180, 80, 220, 80, 200, 120}, {'Player'})[1] == player, 'polygon query')
+        assert(#world:queryCircleArea(300, 300, 5, {'Player'}) == 0, 'miss')
+    end)
+    check('area queries over a circle collider', circle_ok, circle_err)
+
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 

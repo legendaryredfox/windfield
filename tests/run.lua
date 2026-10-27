@@ -126,6 +126,21 @@ test('queries return matching colliders', function()
     eq(found[1], wall, 'line query result')
 end)
 
+test('area queries handle circle colliders', function()
+    local world = newWorld()
+    local circle = world:newCircleCollider(100, 100, 10)
+
+    eq(world:queryCircleArea(115, 100, 10)[1], circle, 'circle query overlapping')
+    eq(#world:queryCircleArea(150, 100, 10), 0, 'circle query far away')
+
+    eq(world:queryRectangleArea(95, 95, 10, 10)[1], circle, 'rectangle query over the center')
+    eq(world:queryRectangleArea(105, 90, 30, 20)[1], circle, 'rectangle query crossing the edge')
+    eq(#world:queryRectangleArea(120, 90, 30, 20), 0, 'rectangle query far away')
+
+    eq(world:queryPolygonArea({80, 80, 120, 80, 100, 120})[1], circle, 'polygon query over the center')
+    eq(#world:queryPolygonArea({200, 200, 240, 200, 220, 240}), 0, 'polygon query far away')
+end)
+
 test('enter, stay and exit events on solid fixtures', function()
     local world = newWorld()
     world:addCollisionClass('Player')
