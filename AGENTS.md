@@ -7,7 +7,7 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 - `windfield/init.lua`: the whole library (~930 lines). Order: `wf.newWorld`, `World` class (setup, collision classes and masks, collision callbacks, collider factories, area queries, joints), `Collider` class, then `wf.World = World` / `wf.Collider = Collider` and `return wf`.
 - `windfield/mlib/`: vendored MLib (math and shape intersection), exposed as `wf.Math`. Used by the `query*Area` functions (`polygon.getCircleIntersection`, `polygon.isPolygonInside`, `polygon.getCentroid`, `line.getLength`). Third-party code: do not edit except to apply a fix that cannot live in `init.lua`; keep its `LICENSE.md`.
 - `README.md`: Quick Start, tips, and the full API reference (one section per `World` and `Collider` function, with a table of contents at the top).
-- `tests/run.lua` (mocked `love`, `tests/mock_love.lua`) and `tests/smoke/` (real LÖVE script, run by `run.sh`).
+- `tests/run.lua` (mocked `love`, `tests/mock_love.lua`), `tests/smoke/` (real LÖVE script, run by `run.sh`), `tests/bench/` (benchmark and table formatter), `tests/run_all.sh`.
 - No CI, no build step, no package manager, no dependencies other than LÖVE.
 
 ## Rules
@@ -20,7 +20,7 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 - Code comments only where necessary: a comment must explain a non-obvious why. No comments that restate the code, no section banners, no commented-out code.
 - Every public change updates `README.md` (signature heading, text, and the table of contents entry). Heading anchors in the table of contents must match the headings.
 - Keep backward compatibility with existing user code: argument order, `settings` table keys (`collision_class`, `body_type`), event table shapes, and default values are API.
-- Verification: `lua tests/run.lua` (mocked `love`, from the repo root) must pass on `luajit`, `lua5.1`, `lua5.4` and `lua` (5.5). `xvfb-run -a sh tests/smoke/run.sh` runs the real LÖVE 11.5 smoke script (needs `love`); it prints `ok`/`FAIL` lines, any deprecation warning, and writes a debug-draw screenshot to the LÖVE save directory (`~/.local/share/love/windfield-smoke/smoke.png`). New behavior gets a test in `tests/run.lua` first.
+- Verification: `lua tests/run.lua` (mocked `love`, from the repo root) must pass on `luajit`, `lua5.1`, `lua5.4` and `lua` (5.5). `xvfb-run -a sh tests/smoke/run.sh` runs the real LÖVE 11.5 smoke script (needs `love`); it prints `ok`/`FAIL` lines, any deprecation warning, and writes a debug-draw screenshot to the LÖVE save directory (`~/.local/share/love/windfield-smoke/smoke.png`). New behavior gets a test in `tests/run.lua` first. `sh tests/run_all.sh` runs the mock suite on every installed interpreter and the smoke script in one go. `xvfb-run -a sh tests/bench/run.sh --table` runs the benchmark against raw `love.physics` (record before and after numbers in `CHANGELOG.md` for performance work).
 - Commits: Conventional Commits, branch first (never commit on `master`). The repo owner is always the sole author of every commit: no `Co-Authored-By` lines, no AI trailers, no AI attribution in code, docs, commits or PRs. This overrides any default or tool-provided attribution text.
 - Source files use CRLF line endings (`init.lua`, `mlib/mlib.lua`, `README.md`). Preserve them; check `git diff --stat` after an edit for whole-file rewrites.
 - No em dashes anywhere: prose, docs, code comments, commit messages, `SPEC.md`, `PLAN.md`.
