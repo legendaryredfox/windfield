@@ -111,12 +111,12 @@ local function getGreatestPoint( points, offset )
     local greatest = points[start]
     local least = points[start]
     for i = 2, #points / 2 do
-        i = i * 2 - offset
-        if points[i] > greatest then
-            greatest = points[i]
+        local index = i * 2 - offset
+        if points[index] > greatest then
+            greatest = points[index]
         end
-        if points[i] < least then
-            least = points[i]
+        if points[index] < least then
+            least = points[index]
         end
     end
     return greatest, least
