@@ -410,6 +410,14 @@ local function collIf(collision_class_name1, collision_class_name2, a, b)
     else return false end
 end
 
+-- Contact objects are only valid during the physics step, so their geometry is copied here.
+local function newCollisionEvent(collision_type, collider_1, collider_2, contact)
+    local nx, ny = contact:getNormal()
+    local x1, y1, x2, y2 = contact:getPositions()
+    return {collision_type = collision_type, collider_1 = collider_1, collider_2 = collider_2, contact = contact,
+            nx = nx, ny = ny, x1 = x1, y1 = y1, x2 = x2, y2 = y2}
+end
+
 local function addCollisionEvent(collider, other_collision_class_name, event)
     local events = collider.collision_events[other_collision_class_name]
     if not events then
@@ -432,9 +440,9 @@ function World.collisionOnEnter(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_enter.sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
                     if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
                     end
                 end
             end
@@ -445,9 +453,9 @@ function World.collisionOnEnter(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_enter.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, {collision_type = 'enter', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
                     if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, {collision_type = 'enter', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
                     end
                 end
             end
@@ -463,9 +471,9 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_exit.sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
                     if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
                     end
                 end
             end
@@ -476,9 +484,9 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
             for _, collision in ipairs(a.world.collisions.on_exit.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, {collision_type = 'exit', collider_1 = a, collider_2 = b, contact = contact})
+                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
                     if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, {collision_type = 'exit', collider_1 = b, collider_2 = a, contact = contact})
+                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
                     end
                 end
             end
@@ -890,14 +898,19 @@ function Collider:setCollisionClass(collision_class_name)
     end
 end
 
+local function collisionData(event)
+    return {collider = event.collider_2, contact = event.contact,
+            nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
+end
+
 function Collider:enter(other_collision_class_name)
     local events = self.collision_events[other_collision_class_name]
     if events and #events >= 1  then
         for _, e in ipairs(events) do
             if e.collision_type == 'enter' then
                 if not self.collision_stay[other_collision_class_name] then self.collision_stay[other_collision_class_name] = {} end
-                table.insert(self.collision_stay[other_collision_class_name], {collider = e.collider_2, contact = e.contact})
-                self.enter_collision_data[other_collision_class_name] = {collider = e.collider_2, contact = e.contact}
+                table.insert(self.collision_stay[other_collision_class_name], collisionData(e))
+                self.enter_collision_data[other_collision_class_name] = collisionData(e)
                 return true
             end
         end
@@ -919,7 +932,7 @@ function Collider:exit(other_collision_class_name)
                         if collision_stay.collider.id == e.collider_2.id then table.remove(self.collision_stay[other_collision_class_name], i) end
                     end
                 end
-                self.exit_collision_data[other_collision_class_name] = {collider = e.collider_2, contact = e.contact}
+                self.exit_collision_data[other_collision_class_name] = collisionData(e)
                 return true 
             end
         end

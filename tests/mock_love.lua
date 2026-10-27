@@ -171,11 +171,24 @@ local function install()
     function love.graphics.circle() end
     function love.graphics.rectangle() end
 
-    -- Calls the callback registered with World:setCallbacks.
-    -- kind: 'enter', 'exit', 'pre' or 'post'.
-    function love._fire(world, kind, fixture_a, fixture_b)
+    local newContact = class('Contact', {
+        getNormal = function(self)
+            if self.destroyed then error('Attempt to use destroyed contact.', 2) end
+            return self.nx, self.ny
+        end,
+        getPositions = function(self)
+            if self.destroyed then error('Attempt to use destroyed contact.', 2) end
+            return unpack(self.positions)
+        end,
+    })
+
+    -- Calls the callback registered with World:setCallbacks and returns the
+    -- contact it passed. kind: 'enter', 'exit', 'pre' or 'post'.
+    function love._fire(world, kind, fixture_a, fixture_b, contact)
         local index = ({enter = 1, exit = 2, pre = 3, post = 4})[kind]
-        world.box2d_world.callbacks[index](fixture_a, fixture_b, {})
+        contact = newContact(contact or {nx = 0, ny = 1, positions = {1, 2}})
+        world.box2d_world.callbacks[index](fixture_a, fixture_b, contact)
+        return contact
     end
 
     return love

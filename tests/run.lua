@@ -322,6 +322,33 @@ test('enter, stay and exit events on solid fixtures', function()
     eq(player:stay('Coin'), nil, 'stay ends after exit')
 end)
 
+test('collision data keeps the contact geometry after the step', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Coin')
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local coin = world:newCircleCollider(0, 0, 5, {collision_class = 'Coin'})
+    world:update(0)
+
+    local contact = love._fire(world, 'enter', player.fixture, coin.fixture, {nx = 0, ny = -1, positions = {10, 20, 30, 40}})
+    truthy(player:enter('Coin'), 'enter')
+    world:update(0)
+    contact.destroyed = true
+
+    local data = player:getEnterCollisionData('Coin')
+    eq(data.nx, 0, 'nx')
+    eq(data.ny, -1, 'ny')
+    eq(data.x1, 10, 'x1')
+    eq(data.y1, 20, 'y1')
+    eq(data.x2, 30, 'x2')
+    eq(data.y2, 40, 'y2')
+    raises(function() data.contact:getNormal() end, 'reading the destroyed contact')
+
+    love._fire(world, 'exit', player.fixture, coin.fixture, {nx = 1, ny = 0, positions = {}})
+    truthy(player:exit('Coin'), 'exit')
+    eq(player:getExitCollisionData('Coin').nx, 1, 'exit nx')
+end)
+
 test('ignored class pairs get events from the sensor fixtures', function()
     local world = newWorld()
     world:addCollisionClass('Player')

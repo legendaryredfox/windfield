@@ -130,6 +130,8 @@ function love.draw()
         check('sensor enter event (ignored pair)', seen.ghost_enter)
         check('sensor exit event (ignored pair)', seen.ghost_exit)
         check('stay after enter', player:stay('Ground'))
+        local data = player:getEnterCollisionData('Ground')
+        check('contact geometry readable after the step', data and type(data.nx) == 'number' and type(data.ny) == 'number' and type(data.x1) == 'number', data and data.nx)
         check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
         love.event.quit(failed == 0 and 0 or 1)
     end
