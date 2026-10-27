@@ -7,19 +7,20 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 - `windfield/init.lua`: the whole library (~930 lines). Order: `wf.newWorld`, `World` class (setup, collision classes and masks, collision callbacks, collider factories, area queries, joints), `Collider` class, then `wf.World = World` / `wf.Collider = Collider` and `return wf`.
 - `windfield/mlib/`: vendored MLib (math and shape intersection), exposed as `wf.Math`. Used by the `query*Area` functions (`polygon.getCircleIntersection`, `polygon.isPolygonInside`, `polygon.getCentroid`, `line.getLength`). Third-party code: do not edit except to apply a fix that cannot live in `init.lua`; keep its `LICENSE.md`.
 - `README.md`: Quick Start, tips, and the full API reference (one section per `World` and `Collider` function, with a table of contents at the top).
-- No tests, no CI, no build step, no package manager, no dependencies other than LÖVE.
+- `tests/run.lua` (mocked `love`, `tests/mock_love.lua`) and `tests/smoke/` (real LÖVE script, run by `run.sh`).
+- No CI, no build step, no package manager, no dependencies other than LÖVE.
 
 ## Rules
 
 - **Targets: LÖVE 11.5 and Lua 5.5.** Runtime is LÖVE 11.5 (LuaJIT 2.1, Lua 5.1 semantics); the source must also load and behave correctly on Lua 5.5, so write the common subset of 5.1 to 5.5. Get `unpack` with `local unpack = table.unpack or unpack`. Never assign to a `for` control variable (error in 5.5), no `loadstring`, `setfenv`, `getfenv`, `table.getn`, `math.pow`, `//`, bitwise operators, `goto`, `<const>`, `<close>`, and never name an identifier `global`. Use only `love.*` APIs that exist in LÖVE 11.5, with no deprecated calls. LÖVE 12 is out of scope (it merges Fixture into Shape).
 - The module is loaded as `require 'windfield'`; `local path = ... .. '.'` in `init.lua` resolves `mlib` relative to wherever the folder lives. Keep requires relative to `path`, never hardcode `windfield.`.
 - Public API uses `camelCase` methods (`newRectangleCollider`, `addCollisionClass`); fields and locals use `snake_case` (`collision_class`, `box2d_world`). Match the surrounding style (4-space indent, single quotes mostly).
-- `World` is currently a global in `init.lua` (`World = {}`); `Collider` is already `local`. Do not add more globals and do not rely on `World` from outside the module.
+- Keep the module free of globals: `World` and `Collider` are `local` and exposed as `wf.World` and `wf.Collider`. `tests/run.lua` checks this.
 - Underscore prefix (`_queryBoundingBox`) marks internal functions. Anything else on `World`/`Collider` is public and must be in the README reference.
 - Code comments only where necessary: a comment must explain a non-obvious why. No comments that restate the code, no section banners, no commented-out code.
 - Every public change updates `README.md` (signature heading, text, and the table of contents entry). Heading anchors in the table of contents must match the headings.
 - Keep backward compatibility with existing user code: argument order, `settings` table keys (`collision_class`, `body_type`), event table shapes, and default values are API.
-- Verification is manual: there is no suite. Check changes in a real LÖVE run (`love <dir>` with a small `main.lua` that requires the module and exercises the touched feature, including `world:draw()` with `setQueryDebugDrawing(true)` for query changes). Put such throwaway scripts outside the repo or in the scratchpad.
+- Verification: `lua tests/run.lua` (mocked `love`, from the repo root) must pass on `luajit`, `lua5.1`, `lua5.4` and `lua` (5.5). `xvfb-run -a sh tests/smoke/run.sh` runs the real LÖVE 11.5 smoke script (needs `love`); it prints `ok`/`FAIL` lines, any deprecation warning, and writes a debug-draw screenshot to the LÖVE save directory (`~/.local/share/love/windfield-smoke/smoke.png`). New behavior gets a test in `tests/run.lua` first.
 - Commits: Conventional Commits, branch first (never commit on `master`). The repo owner is always the sole author of every commit: no `Co-Authored-By` lines, no AI trailers, no AI attribution in code, docs, commits or PRs. This overrides any default or tool-provided attribution text.
 - Source files use CRLF line endings (`init.lua`, `mlib/mlib.lua`, `README.md`). Preserve them; check `git diff --stat` after an edit for whole-file rewrites.
 - No em dashes anywhere: prose, docs, code comments, commit messages, `SPEC.md`, `PLAN.md`.
@@ -47,6 +48,6 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 
 - Proxy functions are closures created per world and per collider inside `pairs(...__index)` loops. Intentional for API compatibility, but costs allocation per collider; do not add more such loops without need.
 - `is_sensor_memo` is never reset. Adding a class later that changes how existing pairs ignore each other can leave stale memo entries. Existing colliders also keep the category/mask they got at creation; `collisionClassesSet()` does not update their fixtures.
-- Suspected bug, not yet verified at runtime: `Collider.new` for `'Chain'` calls `love.physics.newChainShape(args[1], unpack(args[2]))`, but `World:newChainCollider(vertices, loop, settings)` passes `vertices` first and `loop` second, so the argument roles look swapped. `newChainShape` wants `(loop, x1, y1, ...)`. Check in LÖVE before touching it, and keep the public `(vertices, loop)` signature as documented in the README.
+- Known, unfixed: `queryCircleArea`, `queryRectangleArea` and `queryPolygonArea` call `getPoints()` on every candidate shape, and `CircleShape` has no `getPoints` in LÖVE 11.5, so a query whose bounding box touches a circle collider raises an error (verified in LÖVE 11.5). Not part of the version update.
 - A collision class name must exist before `setCollisionClass`; the code raises `error(...)` otherwise. Keep error messages in that form.
 - Collision callbacks run inside `world:update` and Box2D forbids changing the world there. Library code must not destroy bodies or create colliders from the `enter/exit/pre/post` paths; users defer such work until after `update`.
