@@ -51,6 +51,11 @@ end
 local World = {}
 local world_metatable
 
+local function collisionData(event)
+    return {collider = event.collider_2, contact = event.contact,
+            nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
+end
+
 function wf.newWorld(xg, yg, sleep)
     local world = wf.World.new(wf, xg, yg, sleep)
 
@@ -70,6 +75,9 @@ function World.new(wf, xg, yg, sleep)
     self.query_debug_drawing_enabled = false
     self.explicit_collision_events = false
     self.dirty_colliders = {}
+    self.collision_handlers = {}
+    self.has_collision_handlers = false
+    self.step_events = {}
     self.query_results = {}
     self.query_callback = function(fixture)
         if not fixture:isSensor() then
@@ -100,6 +108,46 @@ end
 function World:update(dt)
     self:collisionEventsClear()
     self.box2d_world:update(dt)
+    if self.has_collision_handlers then self:_dispatchCollisionEvents() end
+end
+
+function World:_addCollisionHandler(collision_type, class_a, class_b, fn)
+    local handler = {collision_type = collision_type, class_a = class_a, class_b = class_b, fn = fn}
+    table.insert(self.collision_handlers, handler)
+    self.has_collision_handlers = true
+    return {remove = function()
+        handler.removed = true
+        for i = #self.collision_handlers, 1, -1 do
+            if self.collision_handlers[i] == handler then table.remove(self.collision_handlers, i) end
+        end
+        self.has_collision_handlers = #self.collision_handlers > 0
+    end}
+end
+
+function World:onEnter(class_a, class_b, fn)
+    return self:_addCollisionHandler('enter', class_a, class_b, fn)
+end
+
+function World:onExit(class_a, class_b, fn)
+    return self:_addCollisionHandler('exit', class_a, class_b, fn)
+end
+
+function World:_dispatchCollisionEvents()
+    local events = self.step_events
+    self.step_events = {}
+    for _, event in ipairs(events) do
+        local a, b = event.collider_1, event.collider_2
+        if a.body and b.body then
+            local handlers = {unpack(self.collision_handlers)}
+            for _, handler in ipairs(handlers) do
+                if not handler.removed and handler.collision_type == event.collision_type
+                    and a.collision_class == handler.class_a and b.collision_class == handler.class_b
+                    and (handler.class_a ~= handler.class_b or a.id < b.id) then
+                    handler.fn(a, b, collisionData(event))
+                end
+            end
+        end
+    end
 end
 
 function World:draw(alpha)
@@ -189,10 +237,12 @@ function World:addCollisionClass(collision_class_name, collision_class)
             table.insert(self.collision_classes[collision_class_name].post, c_class_name)
         end
         for c_class_name, _ in pairs(self.collision_classes) do
-            table.insert(self.collision_classes[c_class_name].enter, collision_class_name)
-            table.insert(self.collision_classes[c_class_name].exit, collision_class_name)
-            table.insert(self.collision_classes[c_class_name].pre, collision_class_name)
-            table.insert(self.collision_classes[c_class_name].post, collision_class_name)
+            if c_class_name ~= collision_class_name then
+                table.insert(self.collision_classes[c_class_name].enter, collision_class_name)
+                table.insert(self.collision_classes[c_class_name].exit, collision_class_name)
+                table.insert(self.collision_classes[c_class_name].pre, collision_class_name)
+                table.insert(self.collision_classes[c_class_name].post, collision_class_name)
+            end
         end
     end
 
@@ -418,6 +468,21 @@ local function newCollisionEvent(collision_type, collider_1, collider_2, contact
             nx = nx, ny = ny, x1 = x1, y1 = y1, x2 = x2, y2 = y2}
 end
 
+local function trackStay(collider, other_collision_class_name, event)
+    local stay = collider.collision_stay
+    if not stay then return end
+    if event.collision_type == 'enter' then
+        stay[other_collision_class_name] = stay[other_collision_class_name] or {}
+        table.insert(stay[other_collision_class_name], collisionData(event))
+    elseif stay[other_collision_class_name] then
+        for i = #stay[other_collision_class_name], 1, -1 do
+            if stay[other_collision_class_name][i].collider.id == event.collider_2.id then
+                table.remove(stay[other_collision_class_name], i)
+            end
+        end
+    end
+end
+
 local function addCollisionEvent(collider, other_collision_class_name, event)
     local events = collider.collision_events[other_collision_class_name]
     if not events then
@@ -425,6 +490,11 @@ local function addCollisionEvent(collider, other_collision_class_name, event)
         collider.collision_events[other_collision_class_name] = events
     end
     events[#events + 1] = event
+    trackStay(collider, other_collision_class_name, event)
+    if collider.world.has_collision_handlers then
+        local step_events = collider.world.step_events
+        step_events[#step_events + 1] = event
+    end
     if not collider.has_events then
         collider.has_events = true
         local dirty = collider.world.dirty_colliders
@@ -898,18 +968,11 @@ function Collider:setCollisionClass(collision_class_name)
     end
 end
 
-local function collisionData(event)
-    return {collider = event.collider_2, contact = event.contact,
-            nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
-end
-
 function Collider:enter(other_collision_class_name)
     local events = self.collision_events[other_collision_class_name]
     if events and #events >= 1  then
         for _, e in ipairs(events) do
             if e.collision_type == 'enter' then
-                if not self.collision_stay[other_collision_class_name] then self.collision_stay[other_collision_class_name] = {} end
-                table.insert(self.collision_stay[other_collision_class_name], collisionData(e))
                 self.enter_collision_data[other_collision_class_name] = collisionData(e)
                 return true
             end
@@ -926,12 +989,6 @@ function Collider:exit(other_collision_class_name)
     if events and #events >= 1  then
         for _, e in ipairs(events) do
             if e.collision_type == 'exit' then
-                if self.collision_stay[other_collision_class_name] then
-                    for i = #self.collision_stay[other_collision_class_name], 1, -1 do
-                        local collision_stay = self.collision_stay[other_collision_class_name][i]
-                        if collision_stay.collider.id == e.collider_2.id then table.remove(self.collision_stay[other_collision_class_name], i) end
-                    end
-                end
                 self.exit_collision_data[other_collision_class_name] = collisionData(e)
                 return true 
             end
@@ -943,16 +1000,42 @@ function Collider:getExitCollisionData(other_collision_class_name)
     return self.exit_collision_data[other_collision_class_name]
 end
 
-function Collider:stay(other_collision_class_name)
-    if self.collision_stay[other_collision_class_name] then
-        if #self.collision_stay[other_collision_class_name] >= 1 then
-            return true
-        end
+-- Colliders destroyed while touching never send an exit event, so they are dropped here.
+local function liveStay(collider, other_collision_class_name)
+    local list = collider.collision_stay and collider.collision_stay[other_collision_class_name]
+    if not list then return end
+    for i = #list, 1, -1 do
+        if not list[i].collider.body then table.remove(list, i) end
     end
+    return list
+end
+
+function Collider:stay(other_collision_class_name)
+    local list = liveStay(self, other_collision_class_name)
+    if list and #list >= 1 then return true end
 end
 
 function Collider:getStayCollisionData(other_collision_class_name)
-    return self.collision_stay[other_collision_class_name]
+    return liveStay(self, other_collision_class_name)
+end
+
+local function collectEvents(collider, other_collision_class_name, collision_type)
+    local out = {}
+    local events = collider.collision_events[other_collision_class_name]
+    if events then
+        for _, e in ipairs(events) do
+            if e.collision_type == collision_type then out[#out + 1] = collisionData(e) end
+        end
+    end
+    return out
+end
+
+function Collider:getEnters(other_collision_class_name)
+    return collectEvents(self, other_collision_class_name, 'enter')
+end
+
+function Collider:getExits(other_collision_class_name)
+    return collectEvents(self, other_collision_class_name, 'exit')
 end
 
 function Collider:setPreSolve(callback)

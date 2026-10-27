@@ -11,6 +11,7 @@ local frame = 0
 local world, ground, player, ghost
 local late_world, early_collider
 local seen = {}
+local callbacks = {enter = 0, exit = 0}
 
 local function check(name, ok, detail)
     if not ok then failed = failed + 1 end
@@ -23,6 +24,9 @@ function love.load()
     world:addCollisionClass('Player')
     world:addCollisionClass('Ghost', {ignores = {'Player'}})
     world:setQueryDebugDrawing(true)
+
+    world:onEnter('Player', 'Ground', function() callbacks.enter = callbacks.enter + 1 end)
+    world:onExit('Player', 'Ghost', function() callbacks.exit = callbacks.exit + 1 end)
 
     ground = world:newRectangleCollider(50, 300, 300, 20, {collision_class = 'Ground', body_type = 'static'})
     ghost = world:newRectangleCollider(180, 220, 40, 40, {collision_class = 'Ghost', body_type = 'static'})
@@ -111,6 +115,7 @@ function love.update(dt)
     world:update(1 / 60)
     late_world:update(1 / 60)
     if frame == 150 then world:queryRectangleArea(40, 290, 320, 40, {'Ground'}) end
+    if #player:getEnters('Ground') > 0 then seen.ground_enters = (seen.ground_enters or 0) + 1 end
     if player:enter('Ground') then seen.ground_enter = true end
     if player:enter('Ghost') then seen.ghost_enter = true end
     if player:exit('Ghost') then seen.ghost_exit = true end
@@ -130,6 +135,9 @@ function love.draw()
         check('sensor enter event (ignored pair)', seen.ghost_enter)
         check('sensor exit event (ignored pair)', seen.ghost_exit)
         check('stay after enter', player:stay('Ground'))
+        check('world:onEnter callback', callbacks.enter == 1, callbacks.enter)
+        check('world:onExit callback', callbacks.exit == 1, callbacks.exit)
+        check('getEnters reports the ground contact', (seen.ground_enters or 0) >= 1, seen.ground_enters)
         local data = player:getEnterCollisionData('Ground')
         check('contact geometry readable after the step', data and type(data.nx) == 'number' and type(data.ny) == 'number' and type(data.x1) == 'number', data and data.nx)
         check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
