@@ -122,6 +122,23 @@ test('ignores produce category and mask entries', function()
     eq(collider.fixture.category[1], ghost.categories[1], 'fixture category')
 end)
 
+test('adding a class updates the categories and masks of existing colliders', function()
+    local world = newWorld()
+    world:addCollisionClass('A')
+    local early = world:newCircleCollider(0, 0, 5, {collision_class = 'A'})
+    world:addCollisionClass('B', {ignores = {'A'}})
+    local late = world:newCircleCollider(0, 0, 5, {collision_class = 'B'})
+    for _, collider in ipairs({early, late}) do
+        local expected = world.masks[collider.collision_class]
+        eq(collider.fixture.category[1], expected.categories[1], collider.collision_class .. ' category')
+        eq(#collider.fixture.mask, #expected.masks, collider.collision_class .. ' mask size')
+        for i, category in ipairs(expected.masks) do
+            eq(collider.fixture.mask[i], category, collider.collision_class .. ' mask ' .. i)
+        end
+    end
+    truthy(early.fixture.category[1] ~= late.fixture.category[1], 'A and B are in different categories')
+end)
+
 test('setCollisionClass reapplies category and mask', function()
     local world = newWorld()
     world:addCollisionClass('Player')

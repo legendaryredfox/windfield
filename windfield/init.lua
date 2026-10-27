@@ -186,6 +186,13 @@ end
 
 function World:collisionClassesSet()
     self:generateCategoriesMasks()
+    self.is_sensor_memo = {}
+
+    for _, body in ipairs(self.box2d_world:getBodies()) do
+        local fixture = body:getFixtures()[1]
+        local collider = fixture and fixture:getUserData()
+        if collider then collider:setCollisionClass(collider.collision_class) end
+    end
 
     self:collisionClear()
     local collision_table = self:getCollisionCallbacksTable()

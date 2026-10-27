@@ -8,6 +8,7 @@ local wf = require('windfield')
 local failed = 0
 local frame = 0
 local world, ground, player, ghost
+local late_world, early_collider
 local seen = {}
 
 local function check(name, ok, detail)
@@ -71,12 +72,19 @@ function love.load()
     check('collider keeps its own fields', sample.type == 'Rectangle' and sample.body ~= nil and sample.shape:type() == 'PolygonShape')
     sample:destroy()
 
+    late_world = wf.newWorld(0, 500, true)
+    late_world:addCollisionClass('X')
+    early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})
+    late_world:addCollisionClass('Y', {ignores = {'X'}})
+    late_world:newRectangleCollider(50, 100, 100, 10, {collision_class = 'Y', body_type = 'static'})
+
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 
 function love.update(dt)
     frame = frame + 1
     world:update(1 / 60)
+    late_world:update(1 / 60)
     if frame == 150 then world:queryRectangleArea(40, 290, 320, 40, {'Ground'}) end
     if player:enter('Ground') then seen.ground_enter = true end
     if player:enter('Ghost') then seen.ghost_enter = true end
@@ -97,6 +105,7 @@ function love.draw()
         check('sensor enter event (ignored pair)', seen.ghost_enter)
         check('sensor exit event (ignored pair)', seen.ghost_exit)
         check('stay after enter', player:stay('Ground'))
+        check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
         love.event.quit(failed == 0 and 0 or 1)
     end
 end
