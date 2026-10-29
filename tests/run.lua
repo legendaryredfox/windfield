@@ -632,6 +632,59 @@ test('world callbacks run after the step, once per contact', function()
     eq(#entered, 1, 'removed callback')
 end)
 
+test('collider callbacks run after the step for that collider and class', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Coin')
+    world:addCollisionClass('Ball')
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local coin = world:newCircleCollider(0, 0, 5, {collision_class = 'Coin'})
+    local ball_a = world:newCircleCollider(0, 0, 5, {collision_class = 'Ball'})
+    local ball_b = world:newCircleCollider(0, 0, 5, {collision_class = 'Ball'})
+    world:update(0)
+
+    local entered, exited, coin_calls, ball_calls = {}, {}, 0, {}
+    local handle = player:onEnter('Coin', function(self, other, data) entered[#entered + 1] = {self, other, data.ny} end)
+    player:onExit('Coin', function(self, other) exited[#exited + 1] = {self, other} end)
+    coin:onEnter('Ball', function() coin_calls = coin_calls + 1 end)
+    ball_a:onEnter('Ball', function(self, other) ball_calls[#ball_calls + 1] = {self, other} end)
+
+    love._fire(world, 'enter', player.fixture, coin.fixture, {nx = 0, ny = 1, positions = {1, 2}})
+    eq(#entered, 0, 'not called inside the step')
+    world:update(0)
+    eq(#entered, 1, 'called once')
+    eq(entered[1][1], player, 'receiver')
+    eq(entered[1][2], coin, 'other collider')
+    eq(entered[1][3], 1, 'event data')
+    eq(coin_calls, 0, 'the other collider has no handler for Player')
+    world:update(0)
+    eq(#entered, 1, 'not called again')
+
+    love._fire(world, 'exit', player.fixture, coin.fixture)
+    world:update(0)
+    eq(#exited, 1, 'exit callback')
+
+    love._fire(world, 'enter', ball_a.fixture, ball_b.fixture)
+    world:update(0)
+    eq(#ball_calls, 1, 'called once for a same class pair')
+    eq(ball_calls[1][1], ball_a, 'same class receiver')
+    eq(ball_calls[1][2], ball_b, 'same class other')
+
+    handle:remove()
+    love._fire(world, 'enter', player.fixture, coin.fixture)
+    world:update(0)
+    eq(#entered, 1, 'removed callback')
+
+    player:onEnter('Coin', function() end)
+    player:destroy()
+    ball_a:destroy()
+    coin:onEnter('Ball', function() end):remove()
+    eq(#world.collision_handlers, 1, 'handlers of destroyed colliders are dropped')
+    coin:destroy()
+    eq(#world.collision_handlers, 0, 'no handlers left')
+    eq(world.has_collision_handlers, false, 'handlers flag cleared')
+end)
+
 test('ignored class pairs get events from the sensor fixtures', function()
     local world = newWorld()
     world:addCollisionClass('Player')
@@ -975,6 +1028,32 @@ test('draw shows contacts, bounding boxes, velocities and sleeping bodies', func
     end
     truthy(awake_alpha == 1, 'awake bodies at full alpha')
     truthy(asleep_alpha and asleep_alpha < 1, 'sleeping bodies are dimmer')
+end)
+
+test('a collider with its own draw replaces the debug shape and draw order sorts colliders', function()
+    local world = newWorld()
+    local function mark(name)
+        return function(_, alpha) love.graphics.calls[#love.graphics.calls + 1] = {name = name, alpha = alpha} end
+    end
+    local first = world:newRectangleCollider(0, 0, 10, 10)
+    local second = world:newRectangleCollider(20, 0, 10, 10)
+    local plain = world:newRectangleCollider(40, 0, 10, 10)
+    first.draw = mark('first')
+    second.draw = mark('second')
+    eq(first:getDrawOrder(), 0, 'default draw order')
+    plain:setDrawOrder(1)
+    first:setDrawOrder(2)
+    second:setDrawOrder(-1)
+    eq(first:getDrawOrder(), 2, 'draw order')
+
+    local calls = drawCalls(world, 128)
+    local sequence = {}
+    for _, call in ipairs(calls) do
+        if call.name == 'first' or call.name == 'second' or call.name == 'polygon' then sequence[#sequence + 1] = call.name end
+    end
+    eq(table.concat(sequence, ','), 'second,polygon,first', 'custom draws and debug shapes in draw order')
+    eq(callsNamed(calls, 'first')[1].alpha, 128, 'alpha passed to the draw hook')
+    eq(love.graphics.getLineWidth(), 1, 'line width after the hook')
 end)
 
 test('a failing constructor leaves no body behind', function()

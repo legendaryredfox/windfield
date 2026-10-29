@@ -239,6 +239,7 @@ function World:destroy() end
 ---@field shapes table<string, love.Shape>
 ---@field fixtures table<string, love.Fixture> Solid fixtures by shape name.
 ---@field sensors table<string, love.Fixture> Sensor fixtures by shape name.
+---@field draw? fun(self: windfield.Collider, alpha: number) Called by `World:draw` in place of the debug shape. Alpha is 0 to 255.
 local Collider = {}
 
 ---@param collision_class_name string
@@ -281,6 +282,22 @@ function Collider:stay(other_collision_class_name) end
 ---@param other_collision_class_name string
 ---@return windfield.CollisionData[]?
 function Collider:getStayCollisionData(other_collision_class_name) end
+
+---@param other_collision_class_name string
+---@param callback fun(self: windfield.Collider, other: windfield.Collider, data: windfield.CollisionData)
+---@return windfield.Handle
+function Collider:onEnter(other_collision_class_name, callback) end
+
+---@param other_collision_class_name string
+---@param callback fun(self: windfield.Collider, other: windfield.Collider, data: windfield.CollisionData)
+---@return windfield.Handle
+function Collider:onExit(other_collision_class_name, callback) end
+
+---@param order number Lower orders are drawn first.
+function Collider:setDrawOrder(order) end
+
+---@return number order
+function Collider:getDrawOrder() end
 
 ---@param callback fun(self: windfield.Collider, other: windfield.Collider, contact: love.Contact)
 function Collider:setPreSolve(callback) end

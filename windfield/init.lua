@@ -84,6 +84,7 @@ function World.new(wf, xg, yg, sleep, options)
     self.one_way = {}
     self.conveyors = {}
     self.has_contact_rules = false
+    self.has_draw_order = false
     self.collider_filter = nil
     self.filtered_contacts = setmetatable({}, {__mode = 'k'})
     self.fixed_dt = 1/60
@@ -163,8 +164,8 @@ function World:getAlpha()
     return self.accumulator / self.fixed_dt
 end
 
-function World:_addCollisionHandler(collision_type, class_a, class_b, fn)
-    local handler = {collision_type = collision_type, class_a = class_a, class_b = class_b, fn = fn}
+function World:_addCollisionHandler(collision_type, class_a, class_b, fn, collider)
+    local handler = {collision_type = collision_type, class_a = class_a, class_b = class_b, fn = fn, collider = collider}
     table.insert(self.collision_handlers, handler)
     self.has_collision_handlers = true
     return {remove = function()
@@ -192,10 +193,15 @@ function World:_dispatchCollisionEvents()
         if a.body and b.body then
             local handlers = {unpack(self.collision_handlers)}
             for _, handler in ipairs(handlers) do
-                if not handler.removed and handler.collision_type == event.collision_type
-                    and a.collision_class == handler.class_a and b.collision_class == handler.class_b
-                    and (handler.class_a ~= handler.class_b or a.id < b.id) then
-                    handler.fn(a, b, collisionData(event))
+                if not handler.removed and handler.collision_type == event.collision_type then
+                    if handler.collider then
+                        if handler.collider == a and b.collision_class == handler.class_b then
+                            handler.fn(a, b, collisionData(event))
+                        end
+                    elseif a.collision_class == handler.class_a and b.collision_class == handler.class_b
+                        and (handler.class_a ~= handler.class_b or a.id < b.id) then
+                        handler.fn(a, b, collisionData(event))
+                    end
                 end
             end
         end
@@ -236,6 +242,29 @@ local function drawContacts(world, alpha)
     end
 end
 
+local function drawBody(body, options, alpha)
+    local fixtures = body:getFixtures()
+    local first = fixtures[1]
+    local first_collider = first and first:getUserData()
+    if first_collider and first_collider.draw then
+        first_collider:draw(options.alpha or 255)
+        love.graphics.setLineWidth(options.line_width or 1)
+        return
+    end
+    local body_alpha = alpha
+    if options.sleeping and not body:isAwake() then body_alpha = alpha * 0.4 end
+    local class_colors = options.class_colors
+    for _, fixture in ipairs(fixtures) do
+        local collider = fixture:getUserData()
+        if not (collider and fixture:isSensor()) then
+            local color = class_colors and collider and class_colors[collider.collision_class]
+            if color then love.graphics.setColor(color[1], color[2], color[3], body_alpha)
+            else love.graphics.setColor(222/255, 222/255, 222/255, body_alpha) end
+            drawFixture(body, fixture)
+        end
+    end
+end
+
 function World:draw(options)
     if type(options) ~= 'table' then options = {alpha = options} end
     for key in pairs(options) do
@@ -246,23 +275,24 @@ function World:draw(options)
     local line_width = love.graphics.getLineWidth()
     -- alpha value is optional, 0-255
     local alpha = (options.alpha or 255) / 255
-    local class_colors = options.class_colors
     love.graphics.setLineWidth(options.line_width or 1)
 
     -- Colliders debug
     local bodies = self.box2d_world:getBodies()
-    for _, body in ipairs(bodies) do
-        local body_alpha = alpha
-        if options.sleeping and not body:isAwake() then body_alpha = alpha * 0.4 end
-        for _, fixture in ipairs(body:getFixtures()) do
-            local collider = fixture:getUserData()
-            if not (collider and fixture:isSensor()) then
-                local color = class_colors and collider and class_colors[collider.collision_class]
-                if color then love.graphics.setColor(color[1], color[2], color[3], body_alpha)
-                else love.graphics.setColor(222/255, 222/255, 222/255, body_alpha) end
-                drawFixture(body, fixture)
-            end
+    if self.has_draw_order then
+        local entries = {}
+        for index, body in ipairs(bodies) do
+            local first = body:getFixtures()[1]
+            local collider = first and first:getUserData()
+            entries[index] = {body = body, order = collider and collider.draw_order or 0, index = index}
         end
+        table.sort(entries, function(x, y)
+            if x.order ~= y.order then return x.order < y.order end
+            return x.index < y.index
+        end)
+        for _, entry in ipairs(entries) do drawBody(entry.body, options, alpha) end
+    else
+        for _, body in ipairs(bodies) do drawBody(body, options, alpha) end
     end
     love.graphics.setColor(1, 1, 1, alpha)
 
@@ -1284,6 +1314,23 @@ local function collectEvents(collider, other_collision_class_name, collision_typ
     return out
 end
 
+function Collider:onEnter(other_collision_class_name, fn)
+    return self.world:_addCollisionHandler('enter', self.collision_class, other_collision_class_name, fn, self)
+end
+
+function Collider:onExit(other_collision_class_name, fn)
+    return self.world:_addCollisionHandler('exit', self.collision_class, other_collision_class_name, fn, self)
+end
+
+function Collider:setDrawOrder(order)
+    self.draw_order = order
+    self.world.has_draw_order = true
+end
+
+function Collider:getDrawOrder()
+    return self.draw_order or 0
+end
+
 function Collider:getEnters(other_collision_class_name)
     return collectEvents(self, other_collision_class_name, 'enter')
 end
@@ -1379,7 +1426,16 @@ function Collider:destroy()
 end
 
 function Collider:_destroy()
-    self.world.interpolated[self] = nil
+    local world = self.world
+    world.interpolated[self] = nil
+    local handlers = world.collision_handlers
+    for i = #handlers, 1, -1 do
+        if handlers[i].collider == self then
+            handlers[i].removed = true
+            table.remove(handlers, i)
+        end
+    end
+    world.has_collision_handlers = #handlers > 0
     self.collision_stay = nil
     self.enter_collision_data = nil
     self.exit_collision_data = nil

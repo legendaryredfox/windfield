@@ -229,6 +229,34 @@ function love.load()
     local dim_with, dim_without = count(render('sleeping', {sleeping = true}), dim), count(plain, dim)
     check('draw option sleeping dims sleeping bodies', dim_with > dim_without + 20, dim_without .. ' ' .. dim_with)
     check('draw restores the line width', love.graphics.getLineWidth() == 1)
+    local function pixelAt(data, x, y)
+        local r, g, b = data:getPixel(x, y)
+        return r > 0.9, g > 0.9, b > 0.9
+    end
+    local magenta = draw_world:newRectangleCollider(120, 20, 20, 20, {body_type = 'static'})
+    local yellow = draw_world:newRectangleCollider(130, 30, 20, 20, {body_type = 'static'})
+    magenta.draw = function() love.graphics.setColor(1, 0, 1) love.graphics.rectangle('fill', 120, 20, 20, 20) end
+    yellow.draw = function() love.graphics.setColor(1, 1, 0) love.graphics.rectangle('fill', 130, 30, 20, 20) end
+    yellow:setDrawOrder(1)
+    local yr, yg, yb = pixelAt(render('order_yellow_top'), 135, 35)
+    check('custom draw hook: the higher draw order is drawn on top', yr and yg and not yb)
+    yellow:setDrawOrder(-1)
+    local mr, mg, mb = pixelAt(render('order_magenta_top'), 135, 35)
+    check('custom draw hook: changing the draw order changes the stacking', mr and not mg and mb)
+    local tr, tg, tb = pixelAt(render('hook_replaces_shape'), 121, 21)
+    check('custom draw hook replaces the debug shape', tr and not tg and tb)
+
+    local cb_world = wf.newWorld(0, 300, true)
+    cb_world:addCollisionClass('Wall')
+    cb_world:addCollisionClass('Ball')
+    cb_world:newRectangleCollider(0, 100, 300, 20, {collision_class = 'Wall', body_type = 'static'})
+    local cb_ball = cb_world:newCircleCollider(60, 0, 8, {collision_class = 'Ball'})
+    local cb_calls = {}
+    cb_ball:onEnter('Wall', function(self, other, data) cb_calls[#cb_calls + 1] = {self, other, data} end)
+    for _ = 1, 120 do cb_world:update(1 / 60) end
+    check('collider:onEnter runs once with the receiver, the other collider and the data',
+        #cb_calls == 1 and cb_calls[1][1] == cb_ball and cb_calls[1][2].collision_class == 'Wall' and type(cb_calls[1][3].ny) == 'number', #cb_calls)
+    cb_world:destroy()
     draw_world:destroy()
 
     local rules_world = wf.newWorld(0, 300, true)

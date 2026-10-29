@@ -6,6 +6,8 @@
 
 - `World:draw` accepts an options table: `alpha`, `line_width`, `class_colors`, `contacts`, `aabb`, `velocities` and `sleeping`.
 - CI workflow, `.luacheckrc` and a rockspec.
+- `Collider:onEnter(class, fn)` and `Collider:onExit(class, fn)`: per collider callbacks that run after the step.
+- `Collider:setDrawOrder(order)`, `Collider:getDrawOrder()` and the `collider.draw` hook that `World:draw` calls in place of the debug shape.
 
 ### Changed
 
