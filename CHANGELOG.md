@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+Exact shape queries and shape casts. Purely additive.
 
 ### Added
 
