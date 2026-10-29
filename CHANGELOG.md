@@ -9,6 +9,7 @@
 - `World:step(dt)`, `World:setFixedStep(dt, max_steps)` and `World:getAlpha()`: fixed time step stepping with an accumulator and a step cap.
 - `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
 - Sensors: `addCollisionClass(name, {sensor = true})`, the `sensor` collider setting, `Collider:setSensor` and `Collider:isSensor`.
+- LuaLS type definitions in `types/windfield.lua` and a `.luarc.json`.
 
 ### Changed
 

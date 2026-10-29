@@ -12,6 +12,7 @@
 * [Examples & Tips](#examples--tips)
    * [Checking collisions between game objects](#checking-collisions-between-game-objects)
    * [One-way Platforms](#one-way-platforms)
+* [Editor support](#editor-support)
 * [Documentation](#documentation)
    * [World](#world)
       * [newWorld](#newworldxg-yg-sleep-options)
@@ -336,6 +337,22 @@ And that looks like this:
 </p>
 
 The way this works is that by disabling the contact before collision response is applied (so in the preSolve callback) we can make a collider ignore another. And then all we do is check to see if the player is below platform, and if he is then we disable the contact.
+
+<br>
+
+# Editor support
+
+The `types/windfield.lua` file in this repository holds [LuaLS](https://luals.github.io/) type definitions for the whole API: autocomplete, argument checks and hover documentation for `World`, `Collider`, `settings` tables and collision data. A collider also gets the LÖVE `Body`, `Fixture` and `Shape` methods it forwards.
+
+Copy the `types` folder next to your `windfield` folder and add it, together with the LÖVE definitions, to your `.luarc.json`:
+
+```json
+{
+    "runtime.version": "LuaJIT",
+    "workspace.library": ["${3rd}/love2d/library", "types"],
+    "diagnostics.globals": ["love"]
+}
+```
 
 <br>
 
