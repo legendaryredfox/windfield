@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+Concave polygon colliders. Purely additive.
 
 ### Added
 
