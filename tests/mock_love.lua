@@ -85,6 +85,11 @@ local function install()
     local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
         getAngle = function(self) return self.angle or 0 end,
+        getMass = function(self) return self.mass or 1 end,
+        applyForce = function(self, fx, fy)
+            self.forces = self.forces or {}
+            self.forces[#self.forces + 1] = {fx, fy}
+        end,
         getContacts = function(self) return self.contacts or {} end,
         getType = function(self) return self.body_type or 'dynamic' end,
         isAwake = function(self) return not self.asleep end,
@@ -114,6 +119,7 @@ local function install()
         isSensor = function(self) return self.sensor == true end,
         getShape = function(self) return self.shape end,
         getBody = function(self) return self.body end,
+        getDensity = function(self) return self.density or 1 end,
         testPoint = function(self, x, y)
             local shape, body = self.shape, self.body
             if shape.radius then

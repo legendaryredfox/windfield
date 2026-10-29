@@ -48,6 +48,7 @@
       * [onEnter](#onenterclass_a-class_b-callback)
       * [onExit](#onexitclass_a-class_b-callback)
       * [setColliderFilter](#setcolliderfilterfn)
+      * [addEffector](#addeffectordef)
    * [Collider](#collider)
       * [destroy](#destroy-1)
       * [setCollisionClass](#setcollisionclasscollision_class_name)
@@ -1054,6 +1055,41 @@ Arguments:
 Returns:
 
 * `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
+#### `:addEffector(def)`
+
+Adds a region that acts on the colliders inside it every `world:update`: wind, a zone with different gravity, a swamp that slows things down or a pool that makes things float. A collider is inside when the center of its body is inside the region. Only dynamic bodies are affected. All effects of the effector are added together, and the effects of several effectors add up.
+
+```lua
+local wind = world:addEffector({shape = 'rectangle', x = 0, y = 200, w = 800, h = 200, force = {400, 0}})
+local moon = world:addEffector({shape = 'circle', x = 400, y = 300, r = 150, gravity = {0, -600}, classes = {'Player', 'Crate'}})
+local water = world:addEffector({shape = 'rectangle', x = 0, y = 500, w = 800, h = 300, buoyancy = {density = 2, level = 500}, drag = 3})
+
+wind:setEnabled(false)
+water:setGeometry({y = 450, h = 350})
+moon:destroy()
+```
+
+Arguments:
+
+* `def` `(table)` - The effector definition:
+  * `shape` `(string)` - The region: `'circle'` with `x`, `y` (center) and `r`, `'rectangle'` with `x`, `y` (top left corner), `w` and `h`, or `'polygon'` with `vertices` (a flat table of numbers, any simple polygon)
+  * `[classes={'All'}]` `(table[string])` - The collision classes that are affected, same format as in `queryLine`
+  * `[gravity]` `({gx, gy})` - An acceleration in pixels per second squared, added to the world gravity. It does not depend on the mass
+  * `[force]` `({fx, fy})` - A constant force on every body, as in `Body:applyForce`. A heavier body accelerates less
+  * `[drag]` `(number)` - Slows the body down: it adds the acceleration `-drag * velocity`, so with `drag = 2` the speed falls to about 13 percent in one second
+  * `[buoyancy]` `({density, level})` - A fluid with horizontal surface at `y = level` that fills the region below it. A body that is partly under the surface is pushed against the world gravity with the force of its submerged fraction times its weight times `density` divided by the body's own density, so a body half as dense as the fluid floats half submerged. It needs a world gravity different from zero
+
+  At least one of `gravity`, `force`, `drag` and `buoyancy` is required. Unknown keys raise an error
+
+Returns:
+
+* `handle` `(table)` - With these methods:
+  * `setEnabled(enabled)` and `isEnabled()` - Pause or resume the effector
+  * `setGeometry(geometry)` - Change the region: a table with any of `x`, `y`, `r`, `w`, `h` and `vertices` that replaces those values
+  * `destroy()` - Remove the effector. Using the handle afterwards raises an error, except for calling `destroy` again
 
 ---
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `World:addEffector(def)`: regions with gravity, force, drag and buoyancy, with a handle to enable, move and destroy them.
+
 ## 0.6.0
 
 Concave polygon colliders. Purely additive.
