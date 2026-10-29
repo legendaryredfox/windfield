@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `World:newConcavePolygonCollider(vertices, settings)`: concave polygons (and convex ones with more than 8 vertices) split into convex pieces.
+
 ## 0.5.0
 
 Character controller helpers. Purely additive.

@@ -215,7 +215,23 @@ local function install()
     end
 
     function love.physics.newCircleShape(radius) return newCircle({radius = radius}) end
-    function love.physics.newPolygonShape(...) return newPolygon({points = {...}}) end
+    function love.physics.newPolygonShape(...)
+        local points = {...}
+        if #points == 1 and type(points[1]) == 'table' then points = points[1] end
+        local count = #points / 2
+        if count < 3 or count > 8 then error('Number of vertices must be between 3 and 8', 2) end
+        local sign
+        for i = 1, count do
+            local a, b, c = i, i % count + 1, (i + 1) % count + 1
+            local z = (points[2 * b - 1] - points[2 * a - 1]) * (points[2 * c] - points[2 * a])
+                - (points[2 * b] - points[2 * a]) * (points[2 * c - 1] - points[2 * a - 1])
+            if math.abs(z) > 1e-9 then
+                if sign and (z > 0) ~= sign then error('Polygon is not convex', 2) end
+                sign = z > 0
+            end
+        end
+        return newPolygon({points = points})
+    end
     function love.physics.newEdgeShape(...) return newEdge({points = {...}}) end
 
     function love.physics.newChainShape(loop, ...)
@@ -238,7 +254,38 @@ local function install()
     function love.math.newRandomGenerator() return newGenerator({}) end
 
     function love.math.triangulate(vertices)
-        return {{unpack(vertices, 1, 6)}}
+        local count = #vertices / 2
+        if count < 3 then error('Need at least 3 vertices to triangulate', 2) end
+        local points = {}
+        for i = 1, count do points[i] = {vertices[2 * i - 1], vertices[2 * i]} end
+        local function cross(a, b, c) return (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]) end
+        local area = 0
+        for i = 1, count do area = area + cross(points[1], points[i], points[i % count + 1]) end
+        if area < 0 then
+            for i = 1, math.floor(count / 2) do points[i], points[count - i + 1] = points[count - i + 1], points[i] end
+        end
+        local triangles = {}
+        while #points > 3 do
+            local clipped
+            for i = 1, #points do
+                local a, b, c = points[(i - 2) % #points + 1], points[i], points[i % #points + 1]
+                if cross(a, b, c) > 1e-9 then
+                    local empty = true
+                    for _, p in ipairs(points) do
+                        if p ~= a and p ~= b and p ~= c and cross(a, b, p) >= 0 and cross(b, c, p) >= 0 and cross(c, a, p) >= 0 then empty = false end
+                    end
+                    if empty then
+                        triangles[#triangles + 1] = {a[1], a[2], b[1], b[2], c[1], c[2]}
+                        table.remove(points, i)
+                        clipped = true
+                        break
+                    end
+                end
+            end
+            if not clipped then table.remove(points, 1) end
+        end
+        triangles[#triangles + 1] = {points[1][1], points[1][2], points[2][1], points[2][2], points[3][1], points[3][2]}
+        return triangles
     end
 
     love.graphics.calls = {}

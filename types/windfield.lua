@@ -156,6 +156,11 @@ function World:newBSGRectangleCollider(x, y, w, h, corner_cut_size, settings) en
 ---@return windfield.Collider
 function World:newPolygonCollider(vertices, settings) end
 
+---@param vertices number[] Flat list: x1, y1, x2, y2, ... A simple polygon, convex or not.
+---@param settings? windfield.ColliderSettings
+---@return windfield.Collider
+function World:newConcavePolygonCollider(vertices, settings) end
+
 ---@param x1 number
 ---@param y1 number
 ---@param x2 number

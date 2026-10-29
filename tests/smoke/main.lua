@@ -254,6 +254,34 @@ function love.load()
     local lx, ly = limb:getPosition()
     check('driveTo converges on the target pose', math.abs(lx - 300) < 1 and math.abs(ly - 200) < 1 and math.abs(limb:getAngle() - 0.5) < 0.01, lx .. ' ' .. ly .. ' ' .. limb:getAngle())
     drive_world:destroy()
+
+    local concave_world = wf.newWorld(0, 500, true)
+    local l_shape = concave_world:newConcavePolygonCollider({0, 0, 200, 0, 200, 100, 100, 100, 100, 200, 0, 200}, {body_type = 'static'})
+    local pieces = 0
+    for _ in pairs(l_shape.shapes) do pieces = pieces + 1 end
+    check('concave polygon: an L shape becomes at most two convex pieces', pieces >= 1 and pieces <= 2, pieces)
+    concave_world:update(0)
+    check('concave polygon: the column is solid', concave_world:getColliderAt(50, 150) == l_shape and concave_world:getColliderAt(150, 50) == l_shape)
+    check('concave polygon: the notch is empty', concave_world:getColliderAt(150, 150) == nil)
+    local notch_ball = concave_world:newCircleCollider(150, 150, 10)
+    local rest_ball = concave_world:newCircleCollider(50, -50, 10)
+    for _ = 1, 120 do concave_world:update(1 / 60) end
+    check('concave polygon: a ball in the notch falls through it', select(2, notch_ball:getPosition()) > 300, select(2, notch_ball:getPosition()))
+    check('concave polygon: a ball dropped on the top bar rests on it', select(2, rest_ball:getPosition()) < 0, select(2, rest_ball:getPosition()))
+    local bodies = #concave_world:getBodies()
+    check('concave polygon: a self intersecting polygon raises and leaves nothing behind',
+        not pcall(concave_world.newConcavePolygonCollider, concave_world, {0, 0, 20, 20, 20, 0, 0, 20}) and #concave_world:getBodies() == bodies)
+    local twelve = {}
+    for i = 0, 11 do
+        twelve[#twelve + 1] = 500 + 50 * math.cos(i * math.pi / 6)
+        twelve[#twelve + 1] = 500 + 50 * math.sin(i * math.pi / 6)
+    end
+    local wheel = concave_world:newConcavePolygonCollider(twelve, {body_type = 'static'})
+    local dropped = concave_world:newCircleCollider(500, 300, 10)
+    for _ = 1, 150 do concave_world:update(1 / 60) end
+    check('concave polygon: twelve vertices work around the Box2D limit', select(2, dropped:getPosition()) < 450, select(2, dropped:getPosition()))
+    wheel:destroy()
+    concave_world:destroy()
     ray_world:destroy()
 
     local filter_world = wf.newWorld(0, 300, true)

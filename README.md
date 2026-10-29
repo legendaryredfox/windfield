@@ -29,6 +29,7 @@
       * [newRectangleCollider](#newrectanglecolliderx-y-w-h)
       * [newBSGRectangleCollider](#newbsgrectanglecolliderx-y-w-h-corner_cut_size)
       * [newPolygonCollider](#newpolygoncollidervertices)
+      * [newConcavePolygonCollider](#newconcavepolygoncollidervertices-settings)
       * [newLineCollider](#newlinecolliderx1-y1-x2-y2)
       * [newChainCollider](#newchaincollidervertices-loop)
       * [queryCircleArea](#querycircleareax-y-r-collision_class_names)
@@ -661,6 +662,27 @@ Arguments:
 Returns:
 
 * `Collider` `(table)` - The newly created PolygonCollider
+
+---
+
+#### `:newConcavePolygonCollider(vertices, settings)`
+
+Creates a collider from a polygon that does not have to be convex. Box2D only accepts convex polygons with at most 8 vertices, so the polygon is cut into convex pieces: it is triangulated and neighbouring triangles are merged again while the result stays convex and has at most 8 vertices (the Hertel-Mehlhorn method). The first piece is the `'main'` shape of the collider and the others are added as shapes named `'part2'`, `'part3'` and so on, so they follow the collider's collision class, queries and `destroy`. This also lets you create convex polygons with more than 8 vertices.
+
+```lua
+local ground = world:newConcavePolygonCollider({0, 0, 200, 0, 200, 100, 100, 100, 100, 200, 0, 200}, {body_type = 'static'})
+```
+
+Arguments:
+
+* `vertices` `(table[number])` - The polygon vertices as a flat table of numbers, in either winding order. The polygon must be simple: an error is raised when its edges cross or touch each other or when it has no area. A repeated closing vertex is ignored
+* `[settings]` `(table)` - The same settings as the other collider constructors
+
+Returns:
+
+* `Collider` `(table)` - The newly created collider, of type `'Polygon'`
+
+The pieces are separate fixtures, so a collider that touches two pieces at once generates one `enter` event per piece, and `getEnters` returns one entry for each. Use `newPolygonCollider` for polygons that are already convex and have 8 vertices or fewer: it creates one shape and is cheaper.
 
 ---
 
