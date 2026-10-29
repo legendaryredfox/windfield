@@ -99,7 +99,14 @@
 
 # Quick Start
 
-Windfield targets LÖVE 11.5. The source is also compatible with Lua 5.1 to 5.5.
+Windfield targets LÖVE 11.5 and also runs on the LÖVE 12 development builds (12.0), without using any of the calls LÖVE 12 deprecated. The source is also compatible with Lua 5.1 to 5.5.
+
+What differs between the two runtimes, for your game code:
+
+* In LÖVE 12 a Fixture is a Shape, so `collider.fixture`, `collider.shape` and the entries of `collider.fixtures` and `collider.shapes` are the same kind of object, and the physics callbacks give you shapes. The methods you call on the collider (`collider:setRestitution`, `collider:getRadius`, and so on) are the same.
+* The `frequency` and `damping_ratio` joint options are converted to the stiffness and damping that LÖVE 12 joints use (`love.physics.computeLinearStiffness`; angular for weld joints), so the same code works on both.
+* LÖVE 12 removed some deprecated names that LÖVE 11 forwarded to the Box2D world, such as `world:getBodyList()`.
+* LÖVE 12 builds use Vulkan by default and may need a GPU to draw; the physics runs without one.
 
 Place the `windfield` folder inside your project and require it:
 

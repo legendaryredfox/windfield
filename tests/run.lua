@@ -2,7 +2,7 @@
 -- Works on luajit, lua5.1, lua5.4 and lua5.5.
 package.path = './?.lua;./?/init.lua;' .. package.path
 
-love = require('tests.mock_love')()
+love = require('tests.mock_love')(tonumber(os.getenv('MOCK_LOVE_VERSION')))
 
 local unpack = table.unpack or unpack
 local wf = require('windfield')
@@ -30,6 +30,10 @@ end
 
 local function raises(fn, label)
     if pcall(fn) then error((label or 'call') .. ': expected an error', 2) end
+end
+
+local function partsOf(body)
+    return body[body.getShapes and 'getShapes' or 'getFixtures'](body)
 end
 
 local function newWorld()
@@ -583,7 +587,7 @@ test('shapeCast validates its arguments and releases its fixtures', function()
     raises(function() world:shapeCast({type = 'triangle'}, 0, 0, 1, 0) end, 'unknown type')
     raises(function() world:shapeCast({type = 'circle', radius = 1}, 0, 0, 'x', 0) end, 'bad movement')
     world:shapeCast({type = 'circle', radius = 1}, 0, 0, 10, 0)
-    eq(#world.query_body:getFixtures(), 0, 'query fixtures are destroyed')
+    eq(#partsOf(world.query_body), 0, 'query fixtures are destroyed')
 end)
 
 local function touch(body, fixture_a, fixture_b, nx, ny, extra)
@@ -1153,11 +1157,19 @@ test('joint options set limits, motors and springs and reject unknown keys', fun
     eq(revolute.args[6], nil, 'the options table is not passed to LÖVE')
 
     local distance = world:newDistanceJoint(a, b, 0, 0, 20, 0, false, {frequency = 4, damping_ratio = 0.5})
-    eq(distance.calls.setFrequency[1], 4, 'distance frequency')
-    eq(distance.calls.setDampingRatio[1], 0.5, 'distance damping')
     local wheel = world:newWheelJoint(a, b, 5, 5, 0, 1, false, {frequency = 6, damping_ratio = 0.7, motor = {speed = 1, torque = 9}})
-    eq(wheel.calls.setSpringFrequency[1], 6, 'wheel spring frequency')
-    eq(wheel.calls.setSpringDampingRatio[1], 0.7, 'wheel spring damping')
+    if love._version_major >= 12 then
+        eq(distance.calls.setStiffness[1], 40, 'distance stiffness from the frequency')
+        eq(distance.calls.setDamping[1], 1, 'distance damping from the damping ratio')
+        eq(wheel.calls.setSpringStiffness[1], 60, 'wheel spring stiffness')
+        eq(wheel.calls.setSpringDamping[1], 1.4, 'wheel spring damping')
+        eq(world:newWeldJoint(a, b, 5, 5, false, {frequency = 2, damping_ratio = 1}).calls.setStiffness[1], 200, 'weld uses the angular conversion')
+    else
+        eq(distance.calls.setFrequency[1], 4, 'distance frequency')
+        eq(distance.calls.setDampingRatio[1], 0.5, 'distance damping')
+        eq(wheel.calls.setSpringFrequency[1], 6, 'wheel spring frequency')
+        eq(wheel.calls.setSpringDampingRatio[1], 0.7, 'wheel spring damping')
+    end
     local prismatic = world:newPrismaticJoint(a, b, 0, 0, 1, 0, false, {motor = {speed = 2, force = 80}})
     eq(prismatic.calls.setMaxMotorForce[1], 80, 'prismatic motor force')
 
@@ -1308,7 +1320,7 @@ test('queryShape validates the shape definition and releases its fixtures', func
     raises(function() world:queryShape({type = 'rectangle', w = 1}, 0, 0) end, 'missing height')
     raises(function() world:queryShape('circle', 0, 0) end, 'not a table')
     world:queryShape({type = 'circle', radius = 5}, 0, 0)
-    eq(#world.query_body:getFixtures(), 0, 'query fixtures are destroyed')
+    eq(#partsOf(world.query_body), 0, 'query fixtures are destroyed')
     world:destroy()
     truthy(world.query_world.destroyed, 'hidden world destroyed with the world')
 end)
@@ -1715,7 +1727,7 @@ test('addShape and removeShape manage extra fixtures', function()
     raises(function() collider:addShape('extra', 'CircleShape', 3) end, 'duplicate shape name')
     collider:removeShape('extra')
     eq(collider.shapes.extra, nil, 'shape removed')
-    eq(#collider.body:getFixtures(), 2, 'fixtures left on the body')
+    eq(#partsOf(collider.body), 2, 'fixtures left on the body')
 end)
 
 test('object accessors', function()
