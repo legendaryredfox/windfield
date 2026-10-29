@@ -103,6 +103,9 @@ function World:onEnter(class_a, class_b, fn) end
 ---@return windfield.Handle
 function World:onExit(class_a, class_b, fn) end
 
+---@param fn? fun(a: windfield.Collider, b: windfield.Collider): boolean? Return false to reject the contact.
+function World:setColliderFilter(fn) end
+
 ---@param x number
 ---@param y number
 ---@param r number

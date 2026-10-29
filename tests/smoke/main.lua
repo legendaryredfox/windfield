@@ -163,6 +163,29 @@ function love.load()
     check('queryPoint: class filter', #ray_world:queryPoint(110, 0, {'Zone'}) == 0 and ray_world:getColliderAt(55, 0, {'Zone'}) == zone)
     ray_world:destroy()
 
+    local filter_world = wf.newWorld(0, 300, true)
+    filter_world:addCollisionClass('Wall')
+    filter_world:addCollisionClass('Solid')
+    filter_world:addCollisionClass('Ghost')
+    filter_world:newRectangleCollider(0, 100, 300, 20, {collision_class = 'Wall', body_type = 'static'})
+    local solid_ball = filter_world:newCircleCollider(60, 0, 8, {collision_class = 'Solid'})
+    local ghost_ball = filter_world:newCircleCollider(200, 0, 8, {collision_class = 'Ghost'})
+    filter_world:setColliderFilter(function(a, b)
+        return a.collision_class ~= 'Ghost' and b.collision_class ~= 'Ghost'
+    end)
+    local solid_enters, ghost_enters, ghost_exits = 0, 0, 0
+    for _ = 1, 120 do
+        filter_world:update(1 / 60)
+        if solid_ball:enter('Wall') then solid_enters = solid_enters + 1 end
+        if ghost_ball:enter('Wall') then ghost_enters = ghost_enters + 1 end
+        if ghost_ball:exit('Wall') then ghost_exits = ghost_exits + 1 end
+    end
+    local _, solid_y = solid_ball:getPosition()
+    local _, ghost_y = ghost_ball:getPosition()
+    check('collider filter: accepted contact lands with an enter event', solid_y < 100 and solid_enters >= 1, solid_y .. ' ' .. solid_enters)
+    check('collider filter: rejected contact passes through with no events', ghost_y > 130 and ghost_enters == 0 and ghost_exits == 0, ghost_y .. ' ' .. ghost_enters .. ' ' .. ghost_exits)
+    filter_world:destroy()
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

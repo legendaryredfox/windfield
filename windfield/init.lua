@@ -81,6 +81,8 @@ function World.new(wf, xg, yg, sleep, options)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.collider_filter = nil
+    self.filtered_contacts = setmetatable({}, {__mode = 'k'})
     self.fixed_dt = 1/60
     self.max_steps = 5
     self.accumulator = 0
@@ -147,6 +149,11 @@ function World:step(dt)
     end
     if self.accumulator >= fixed then self.accumulator = self.accumulator % fixed end
     return steps
+end
+
+function World:setColliderFilter(fn)
+    if fn ~= nil and type(fn) ~= 'function' then error('The contact filter must be a function or nil.') end
+    self.collider_filter = fn
 end
 
 function World:getAlpha()
@@ -564,6 +571,13 @@ local function emitCollisionEvents(list, event_type, a, b, contact)
     end
 end
 
+local function contactRejected(a, b, contact)
+    local filter = a.world.collider_filter
+    if not filter or filter(a, b) ~= false then return false end
+    contact:setEnabled(false)
+    return true
+end
+
 function World.collisionOnEnter(fixture_a, fixture_b, contact)
     local a, b = fixture_a:getUserData(), fixture_b:getUserData()
 
@@ -575,7 +589,10 @@ function World.collisionOnEnter(fixture_a, fixture_b, contact)
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then emitCollisionEvents(a.world.collisions.on_enter.non_sensor, 'enter', a, b, contact) end
+        if a and b then
+            if contactRejected(a, b, contact) then a.world.filtered_contacts[contact] = true
+            else emitCollisionEvents(a.world.collisions.on_enter.non_sensor, 'enter', a, b, contact) end
+        end
     end
 end
 
@@ -590,7 +607,11 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then emitCollisionEvents(a.world.collisions.on_exit.non_sensor, 'exit', a, b, contact) end
+        if a and b then
+            local filtered = a.world.filtered_contacts
+            if filtered[contact] then filtered[contact] = nil
+            else emitCollisionEvents(a.world.collisions.on_exit.non_sensor, 'exit', a, b, contact) end
+        end
     end
 end
 
@@ -611,7 +632,7 @@ function World.collisionPre(fixture_a, fixture_b, contact)
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then
+        if a and b and not contactRejected(a, b, contact) then
             for _, collision in ipairs(a.world.collisions.pre.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)

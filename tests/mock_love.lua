@@ -230,6 +230,8 @@ local function install()
             if self.destroyed then error('Attempt to use destroyed contact.', 2) end
             return unpack(self.positions)
         end,
+        setEnabled = function(self, enabled) self.enabled = enabled end,
+        isEnabled = function(self) return self.enabled ~= false end,
     })
 
     -- Calls the callback registered with World:setCallbacks and returns the

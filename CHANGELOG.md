@@ -12,6 +12,7 @@
 - LuaLS type definitions in `types/windfield.lua` and a `.luarc.json`.
 - `World:raycast(x1, y1, x2, y2, classes, mode)`: hits with point, normal and fraction, sorted by distance, or only the closest.
 - `World:queryPoint(x, y, classes)` and `World:getColliderAt(x, y, classes)`: exact point queries.
+- `World:setColliderFilter(fn)`: reject contacts between colliders from Lua, with no response and no events.
 
 ### Changed
 

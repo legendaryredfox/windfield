@@ -43,6 +43,7 @@
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
       * [onEnter](#onenterclass_a-class_b-callback)
       * [onExit](#onexitclass_a-class_b-callback)
+      * [setColliderFilter](#setcolliderfilterfn)
    * [Collider](#collider)
       * [destroy](#destroy-1)
       * [setCollisionClass](#setcollisionclasscollision_class_name)
@@ -914,6 +915,25 @@ Arguments:
 Returns:
 
 * `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
+#### `:setColliderFilter(fn)`
+
+Sets a function that decides, for every pair of solid colliders that touch, whether the contact is kept. Return `false` to reject it: the colliders pass through each other, no `enter`, `exit`, `pre` or `post` events are generated for that contact and the colliders' pre solve callbacks do not run. Any other return value, including `nil`, keeps the contact. Use it for rules that depend on the game state, like a ghost mode or a one-way platform.
+
+```lua
+world:setColliderFilter(function(a, b)
+    if a.object and a.object.ghost then return false end
+    if b.object and b.object.ghost then return false end
+end)
+```
+
+The function runs when two colliders begin touching and again every step they keep touching, so keep it cheap. The order of the two colliders is unspecified. Sensor pairs (see `Collider:setSensor`) never reach the filter. Do not confuse it with the LÖVE `World:setContactFilter`, which still works and filters fixtures.
+
+Arguments:
+
+* `fn` `(function)` - Called as `fn(collider_a, collider_b)`. Pass `nil` to remove the filter
 
 ---
 
