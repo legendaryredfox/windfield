@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.11.0'
+wf._VERSION = '0.12.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -406,7 +406,8 @@ function World:addEffector(def)
 
     local effector = {
         region = region, classes = def.classes or {'All'}, enabled = true,
-        gravity = def.gravity, force = def.force, drag = def.drag, buoyancy = def.buoyancy,
+        gravity = def.gravity, force = def.force, drag = def.drag,
+        buoyancy = def.buoyancy and {density = def.buoyancy.density, level = def.buoyancy.level},
     }
     table.insert(self.effectors, effector)
     local world = self
@@ -614,6 +615,38 @@ function World:restore(snapshot)
     end
     table.sort(missing)
     return missing
+end
+
+function World:shiftOrigin(dx, dy)
+    if type(dx) ~= 'number' or type(dy) ~= 'number' then error('shiftOrigin needs numeric dx and dy.', 2) end
+    self.box2d_world:translateOrigin(-dx, -dy)
+    for collider in pairs(self.interpolated) do
+        if collider.prev_x then collider.prev_x, collider.prev_y = collider.prev_x + dx, collider.prev_y + dy end
+    end
+    for _, effector in ipairs(self.effectors) do
+        local region = effector.region
+        if region.shape == 'polygon' then
+            local shifted = {}
+            for i = 1, #region.vertices, 2 do
+                shifted[i], shifted[i + 1] = region.vertices[i] + dx, region.vertices[i + 1] + dy
+            end
+            region.vertices = shifted
+        else
+            region.x, region.y = region.x + dx, region.y + dy
+        end
+        if effector.buoyancy then effector.buoyancy.level = effector.buoyancy.level + dy end
+    end
+    for _, query in ipairs(self.query_debug_draw) do
+        if query.type == 'line' then
+            query.x1, query.y1, query.x2, query.y2 = query.x1 + dx, query.y1 + dy, query.x2 + dx, query.y2 + dy
+        elseif query.type == 'polygon' then
+            local shifted = {}
+            for i = 1, #query.vertices, 2 do shifted[i], shifted[i + 1] = query.vertices[i] + dx, query.vertices[i + 1] + dy end
+            query.vertices = shifted
+        else
+            query.x, query.y = query.x + dx, query.y + dy
+        end
+    end
 end
 
 function World:setFixedStep(dt, max_steps)
@@ -2066,10 +2099,14 @@ local fixture_settings = {restitution = 'setRestitution', friction = 'setFrictio
 local function checkSettings(settings)
     if not settings then return end
     for key in pairs(settings) do
-        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor'
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor' and key ~= 'motion_quality'
             and not body_settings[key] and not fixture_settings[key] then
             error('Unknown collider setting ' .. tostring(key) .. '.', 3)
         end
+    end
+    local quality = settings.motion_quality
+    if quality ~= nil and quality ~= 'discrete' and quality ~= 'continuous' then
+        error("motion_quality must be 'discrete' or 'continuous'.", 3)
     end
 end
 
@@ -2082,6 +2119,7 @@ local function applySettings(body, fixture, settings)
         if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
     end
     if settings.density ~= nil then body:resetMassData() end
+    if settings.motion_quality ~= nil then body:setBullet(settings.motion_quality == 'continuous') end
 end
 
 local all_categories = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
@@ -2264,6 +2302,15 @@ local function collectEvents(collider, other_collision_class_name, collision_typ
         end
     end
     return out
+end
+
+function Collider:setMotionQuality(quality)
+    if quality ~= 'discrete' and quality ~= 'continuous' then error("The motion quality must be 'discrete' or 'continuous'.", 2) end
+    self.body:setBullet(quality == 'continuous')
+end
+
+function Collider:getMotionQuality()
+    return self.body:isBullet() and 'continuous' or 'discrete'
 end
 
 function Collider:isPooled()

@@ -75,6 +75,10 @@ local function install()
                 end
             end
         end,
+        translateOrigin = function(self, x, y)
+            self.origin_shifts = (self.origin_shifts or 0) + 1
+            for _, body in ipairs(self.bodies) do body.x, body.y = body.x - x, body.y - y end
+        end,
         destroy = function(self) self.destroyed = true end,
     })
 
@@ -102,6 +106,10 @@ local function install()
         end,
         getContacts = function(self) return self.contacts or {} end,
         getJoints = function(self) return self.joints end,
+        isBullet = function(self)
+            local call = self.calls and self.calls.setBullet
+            return call ~= nil and call[1] == true
+        end,
         isActive = function(self)
             local call = self.calls and self.calls.setActive
             return not (call and call[1] == false)

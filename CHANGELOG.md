@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0
+
+Motion quality and origin shifting. Purely additive.
+
+### Added
+
+- `Collider:setMotionQuality('discrete'|'continuous')`, `getMotionQuality()` and the `motion_quality` setting: named aliases for bullet mode.
+- `World:shiftOrigin(dx, dy)`: move the whole world, including effector regions and interpolation snapshots, to keep large worlds close to the origin.
+
 ## 0.11.0
 
 Tiled maps through Simple-Tiled-Implementation. Purely additive.
