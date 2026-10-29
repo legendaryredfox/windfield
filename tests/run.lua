@@ -119,6 +119,46 @@ test('rectangle collider body sits at the rectangle center and honors settings',
     eq(collider.body.body_type, 'static')
 end)
 
+test('settings keys map to Box2D calls', function()
+    local world = newWorld()
+    local payload = {}
+    local collider = world:newRectangleCollider(0, 0, 10, 10, {
+        bullet = true, fixed_rotation = true, gravity_scale = 0.5, linear_damping = 1, angular_damping = 2,
+        sleeping_allowed = false, active = false, angle = 1.5, restitution = 0.3, friction = 0.4, density = 2,
+        object = payload,
+    })
+    local body_calls = collider.body.calls
+    eq(body_calls.setBullet[1], true, 'bullet')
+    eq(body_calls.setFixedRotation[1], true, 'fixed_rotation')
+    eq(body_calls.setGravityScale[1], 0.5, 'gravity_scale')
+    eq(body_calls.setLinearDamping[1], 1, 'linear_damping')
+    eq(body_calls.setAngularDamping[1], 2, 'angular_damping')
+    eq(body_calls.setSleepingAllowed[1], false, 'sleeping_allowed')
+    eq(body_calls.setActive[1], false, 'active')
+    eq(body_calls.setAngle[1], 1.5, 'angle')
+    truthy(body_calls.resetMassData, 'mass reset after density')
+    local fixture_calls = collider.fixtures.main.calls
+    eq(fixture_calls.setRestitution[1], 0.3, 'restitution')
+    eq(fixture_calls.setFriction[1], 0.4, 'friction')
+    eq(fixture_calls.setDensity[1], 2, 'density')
+    eq(collider.sensors.main.calls, nil, 'sensor fixture is left alone')
+    eq(collider:getObject(), payload, 'object')
+end)
+
+test('settings without the new keys make no extra Box2D calls', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5, {body_type = 'static'})
+    eq(collider.body.calls, nil, 'body calls')
+    eq(collider.fixtures.main.calls, nil, 'fixture calls')
+end)
+
+test('unknown settings keys raise and leave no body behind', function()
+    local world = newWorld()
+    local before = #world:getBodies()
+    raises(function() world:newCircleCollider(0, 0, 5, {restitutoin = 1}) end, 'typo')
+    eq(#world:getBodies(), before, 'bodies')
+end)
+
 test('ignores produce category and mask entries', function()
     local world = newWorld()
     world:addCollisionClass('Player')

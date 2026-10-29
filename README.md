@@ -19,6 +19,7 @@
       * [draw](#drawalpha)
       * [destroy](#destroy)
       * [addCollisionClass](#addcollisionclasscollision_class_name-collision_class)
+      * [Collider settings](#collider-settings)
       * [newCircleCollider](#newcirclecolliderx-y-r)
       * [newRectangleCollider](#newrectanglecolliderx-y-w-h)
       * [newBSGRectangleCollider](#newbsgrectanglecolliderx-y-w-h-corner_cut_size)
@@ -417,6 +418,33 @@ Settings:
 * `[exit]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they exit contact with each other
 * `[pre]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class right before collision response is applied
 * `[post]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class right after collision response is applied
+
+---
+
+#### Collider settings
+
+Every collider constructor (`newCircleCollider`, `newRectangleCollider`, `newBSGRectangleCollider`, `newPolygonCollider`, `newLineCollider`, `newChainCollider`) takes an optional `settings` table as its last argument:
+
+```lua
+box = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Player', body_type = 'dynamic', fixed_rotation = true, friction = 0.2})
+```
+
+* `collision_class='Default'` `(string)` - The name of the collision class
+* `body_type='dynamic'` `(string)` - `'dynamic'`, `'static'` or `'kinematic'`
+* `bullet` `(boolean)` - Continuous collision detection against other moving bodies (`setBullet`)
+* `fixed_rotation` `(boolean)` - Prevents the body from rotating (`setFixedRotation`)
+* `gravity_scale` `(number)` - Multiplier applied to the world's gravity (`setGravityScale`)
+* `linear_damping` `(number)` - `setLinearDamping`
+* `angular_damping` `(number)` - `setAngularDamping`
+* `sleeping_allowed` `(boolean)` - `setSleepingAllowed`
+* `active` `(boolean)` - `setActive`
+* `angle` `(number)` - The initial angle in radians (`setAngle`)
+* `restitution` `(number)` - `setRestitution` on the solid fixture
+* `friction` `(number)` - `setFriction` on the solid fixture
+* `density` `(number)` - `setDensity` on the solid fixture; the body mass is recomputed
+* `object` `(any)` - Stored on the collider, same as `setObject`
+
+Keys that are not listed raise an error, so a typo such as `restitutoin` is caught when the collider is created.
 
 ---
 

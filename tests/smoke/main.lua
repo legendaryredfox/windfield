@@ -78,6 +78,22 @@ function love.load()
     check('collider keeps its own fields', sample.type == 'Rectangle' and sample.body ~= nil and sample.shape:type() == 'PolygonShape')
     sample:destroy()
 
+    local tagged = {}
+    local configured = world:newRectangleCollider(500, 50, 20, 20, {
+        bullet = true, fixed_rotation = true, gravity_scale = 0.5, linear_damping = 1, angular_damping = 2,
+        sleeping_allowed = false, angle = 1.5, restitution = 0.3, friction = 0.4, density = 2, object = tagged,
+    })
+    local fixture = configured.fixture
+    check('settings keys reach Box2D',
+        configured:isBullet() and configured:isFixedRotation() and configured:getGravityScale() == 0.5
+        and configured:getLinearDamping() == 1 and configured:getAngularDamping() == 2
+        and not configured:isSleepingAllowed() and math.abs(configured:getAngle() - 1.5) < 1e-6
+        and math.abs(fixture:getRestitution() - 0.3) < 1e-6 and math.abs(fixture:getFriction() - 0.4) < 1e-6
+        and fixture:getDensity() == 2 and configured:getObject() == tagged)
+    check('density settings update the body mass', configured:getMass() > 0)
+    check('unknown settings key raises', not pcall(world.newCircleCollider, world, 0, 0, 5, {restitutoin = 1}))
+    configured:destroy()
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

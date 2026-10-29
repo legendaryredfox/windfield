@@ -880,6 +880,34 @@ local function UUID()
     return (("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"):gsub("[xy]", fn))
 end
 
+local body_settings = {
+    bullet = 'setBullet', fixed_rotation = 'setFixedRotation', gravity_scale = 'setGravityScale',
+    linear_damping = 'setLinearDamping', angular_damping = 'setAngularDamping',
+    sleeping_allowed = 'setSleepingAllowed', active = 'setActive', angle = 'setAngle',
+}
+local fixture_settings = {restitution = 'setRestitution', friction = 'setFriction', density = 'setDensity'}
+
+local function checkSettings(settings)
+    if not settings then return end
+    for key in pairs(settings) do
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object'
+            and not body_settings[key] and not fixture_settings[key] then
+            error('Unknown collider setting ' .. tostring(key) .. '.', 3)
+        end
+    end
+end
+
+local function applySettings(body, fixture, settings)
+    if not settings then return end
+    for key, method in pairs(body_settings) do
+        if settings[key] ~= nil then body[method](body, settings[key]) end
+    end
+    for key, method in pairs(fixture_settings) do
+        if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
+    end
+    if settings.density ~= nil then body:resetMassData() end
+end
+
 function Collider.new(world, collider_type, ...)
     local self = {}
     self.id = UUID()
@@ -931,6 +959,7 @@ function Collider.new(world, collider_type, ...)
         shape = love.physics.newChainShape(args[2], unpack(args[1]))
     end
 
+    checkSettings(settings)
     self.collision_class = (settings and settings.collision_class) or 'Default'
     self.body = love.physics.newBody(self.world.box2d_world, x, y, (settings and settings.body_type) or 'dynamic')
 
@@ -944,6 +973,9 @@ function Collider.new(world, collider_type, ...)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
     sensor:setUserData(self)
+
+    applySettings(self.body, fixture, settings)
+    self.object = settings and settings.object
 
     self.shapes['main'] = shape
     self.fixtures['main'] = fixture
