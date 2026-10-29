@@ -80,8 +80,17 @@ function World:setFixedStep(dt, max_steps) end
 ---@return number alpha Leftover fraction of a fixed step, from 0 up to but not including 1.
 function World:getAlpha() end
 
----@param alpha? number 0 to 255. Default 255.
-function World:draw(alpha) end
+---@class windfield.DrawOptions
+---@field alpha? number 0 to 255. Default 255.
+---@field line_width? number Default 1.
+---@field class_colors? table<string, number[]> `{r, g, b}` from 0 to 1 by collision class.
+---@field contacts? boolean Contact points and normals.
+---@field aabb? boolean Bounding boxes.
+---@field velocities? boolean Lines to where each body is a quarter of a second later.
+---@field sleeping? boolean Dim the bodies that are asleep.
+
+---@param alpha_or_options? number|windfield.DrawOptions A number is the alpha, 0 to 255.
+function World:draw(alpha_or_options) end
 
 ---@param value boolean
 function World:setQueryDebugDrawing(value) end
@@ -230,6 +239,7 @@ function World:destroy() end
 ---@field shapes table<string, love.Shape>
 ---@field fixtures table<string, love.Fixture> Solid fixtures by shape name.
 ---@field sensors table<string, love.Fixture> Sensor fixtures by shape name.
+---@field draw? fun(self: windfield.Collider, alpha: number) Called by `World:draw` in place of the debug shape. Alpha is 0 to 255.
 local Collider = {}
 
 ---@param collision_class_name string
@@ -272,6 +282,22 @@ function Collider:stay(other_collision_class_name) end
 ---@param other_collision_class_name string
 ---@return windfield.CollisionData[]?
 function Collider:getStayCollisionData(other_collision_class_name) end
+
+---@param other_collision_class_name string
+---@param callback fun(self: windfield.Collider, other: windfield.Collider, data: windfield.CollisionData)
+---@return windfield.Handle
+function Collider:onEnter(other_collision_class_name, callback) end
+
+---@param other_collision_class_name string
+---@param callback fun(self: windfield.Collider, other: windfield.Collider, data: windfield.CollisionData)
+---@return windfield.Handle
+function Collider:onExit(other_collision_class_name, callback) end
+
+---@param order number Lower orders are drawn first.
+function Collider:setDrawOrder(order) end
+
+---@return number order
+function Collider:getDrawOrder() end
 
 ---@param callback fun(self: windfield.Collider, other: windfield.Collider, contact: love.Contact)
 function Collider:setPreSolve(callback) end

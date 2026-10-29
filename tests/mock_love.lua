@@ -52,6 +52,7 @@ local function install()
             if not ok then error(err, 0) end
         end,
         getBodies = function(self) return self.bodies end,
+        getContacts = function(self) return self.contacts or {} end,
         getJoints = function(self) return self.joints end,
         setGravity = function(self, x, y) self.gx, self.gy = x, y end,
         getGravity = function(self) return self.gx, self.gy end,
@@ -84,6 +85,8 @@ local function install()
     local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
         getAngle = function(self) return self.angle or 0 end,
+        getType = function(self) return self.body_type or 'dynamic' end,
+        isAwake = function(self) return not self.asleep end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
         getFixtures = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,
@@ -137,12 +140,14 @@ local function install()
     local polygonMethods = {
         getPoints = function(self) return unpack(self.points) end,
         probe = function() return 'shape' end,
+        getChildCount = function() return 1 end,
     }
     local newPolygon = class('PolygonShape', polygonMethods)
-    local newEdge = class('EdgeShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe})
-    local newChain = class('ChainShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe})
+    local newEdge = class('EdgeShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe, getChildCount = polygonMethods.getChildCount})
+    local newChain = class('ChainShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe, getChildCount = polygonMethods.getChildCount})
     local newCircle = class('CircleShape', {
         probe = polygonMethods.probe,
+        getChildCount = polygonMethods.getChildCount,
         getRadius = function(self) return self.radius end,
         getPoint = function() return 0, 0 end,
     })
@@ -210,16 +215,29 @@ local function install()
         return {{unpack(vertices, 1, 6)}}
     end
 
+    love.graphics.calls = {}
+    local line_width = 1
+    local function record(name)
+        return function(...)
+            love.graphics.calls[#love.graphics.calls + 1] = {name = name, ...}
+        end
+    end
     function love.graphics.getColor() return 1, 1, 1, 1 end
     function love.graphics.setColor(...)
         local color = {...}
         if type(color[1]) == 'table' then color = color[1] end
         love._colors[#love._colors + 1] = color
+        love.graphics.calls[#love.graphics.calls + 1] = {name = 'setColor', unpack(color)}
     end
-    function love.graphics.polygon() end
-    function love.graphics.line() end
-    function love.graphics.circle() end
-    function love.graphics.rectangle() end
+    function love.graphics.getLineWidth() return line_width end
+    function love.graphics.setLineWidth(width)
+        line_width = width
+        love.graphics.calls[#love.graphics.calls + 1] = {name = 'setLineWidth', width}
+    end
+    love.graphics.polygon = record('polygon')
+    love.graphics.line = record('line')
+    love.graphics.circle = record('circle')
+    love.graphics.rectangle = record('rectangle')
 
     local newContact = class('Contact', {
         getNormal = function(self)
@@ -230,11 +248,14 @@ local function install()
             if self.destroyed then error('Attempt to use destroyed contact.', 2) end
             return unpack(self.positions)
         end,
+        isTouching = function(self) return self.touching ~= false end,
         setEnabled = function(self, enabled) self.enabled = enabled end,
         isEnabled = function(self) return self.enabled ~= false end,
         setTangentSpeed = function(self, speed) self.tangent_speed = speed end,
         getTangentSpeed = function(self) return self.tangent_speed or 0 end,
     })
+
+    love._newContact = newContact
 
     -- Calls the callback registered with World:setCallbacks and returns the
     -- contact it passed. kind: 'enter', 'exit', 'pre' or 'post'.

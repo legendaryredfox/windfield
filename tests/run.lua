@@ -632,6 +632,59 @@ test('world callbacks run after the step, once per contact', function()
     eq(#entered, 1, 'removed callback')
 end)
 
+test('collider callbacks run after the step for that collider and class', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Coin')
+    world:addCollisionClass('Ball')
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local coin = world:newCircleCollider(0, 0, 5, {collision_class = 'Coin'})
+    local ball_a = world:newCircleCollider(0, 0, 5, {collision_class = 'Ball'})
+    local ball_b = world:newCircleCollider(0, 0, 5, {collision_class = 'Ball'})
+    world:update(0)
+
+    local entered, exited, coin_calls, ball_calls = {}, {}, 0, {}
+    local handle = player:onEnter('Coin', function(self, other, data) entered[#entered + 1] = {self, other, data.ny} end)
+    player:onExit('Coin', function(self, other) exited[#exited + 1] = {self, other} end)
+    coin:onEnter('Ball', function() coin_calls = coin_calls + 1 end)
+    ball_a:onEnter('Ball', function(self, other) ball_calls[#ball_calls + 1] = {self, other} end)
+
+    love._fire(world, 'enter', player.fixture, coin.fixture, {nx = 0, ny = 1, positions = {1, 2}})
+    eq(#entered, 0, 'not called inside the step')
+    world:update(0)
+    eq(#entered, 1, 'called once')
+    eq(entered[1][1], player, 'receiver')
+    eq(entered[1][2], coin, 'other collider')
+    eq(entered[1][3], 1, 'event data')
+    eq(coin_calls, 0, 'the other collider has no handler for Player')
+    world:update(0)
+    eq(#entered, 1, 'not called again')
+
+    love._fire(world, 'exit', player.fixture, coin.fixture)
+    world:update(0)
+    eq(#exited, 1, 'exit callback')
+
+    love._fire(world, 'enter', ball_a.fixture, ball_b.fixture)
+    world:update(0)
+    eq(#ball_calls, 1, 'called once for a same class pair')
+    eq(ball_calls[1][1], ball_a, 'same class receiver')
+    eq(ball_calls[1][2], ball_b, 'same class other')
+
+    handle:remove()
+    love._fire(world, 'enter', player.fixture, coin.fixture)
+    world:update(0)
+    eq(#entered, 1, 'removed callback')
+
+    player:onEnter('Coin', function() end)
+    player:destroy()
+    ball_a:destroy()
+    coin:onEnter('Ball', function() end):remove()
+    eq(#world.collision_handlers, 1, 'handlers of destroyed colliders are dropped')
+    coin:destroy()
+    eq(#world.collision_handlers, 0, 'no handlers left')
+    eq(world.has_collision_handlers, false, 'handlers flag cleared')
+end)
+
 test('ignored class pairs get events from the sensor fixtures', function()
     local world = newWorld()
     world:addCollisionClass('Player')
@@ -879,6 +932,128 @@ test('draw uses 0-1 colors and maps the 0-255 alpha argument', function()
         local alpha = love._colors[i][4]
         truthy(math.abs(alpha - 128 / 255) < 1e-9, 'alpha ' .. tostring(alpha))
     end
+end)
+
+local function drawCalls(world, options)
+    love.graphics.calls = {}
+    world:draw(options)
+    return love.graphics.calls
+end
+
+local function callsNamed(calls, name)
+    local out = {}
+    for _, call in ipairs(calls) do
+        if call.name == name then out[#out + 1] = call end
+    end
+    return out
+end
+
+test('draw options: alpha, line width and restoring the previous line width', function()
+    local world = newWorld()
+    world:newRectangleCollider(0, 0, 10, 10)
+    love.graphics.setLineWidth(5)
+    local calls = drawCalls(world, {alpha = 51})
+    local widths = callsNamed(calls, 'setLineWidth')
+    eq(widths[1][1], 1, 'default line width while drawing')
+    eq(widths[#widths][1], 5, 'previous line width restored')
+    for _, color in ipairs(callsNamed(calls, 'setColor')) do
+        if #color == 4 and color[4] ~= 1 then eq(color[4], 51 / 255, 'alpha from the options table') end
+    end
+    calls = drawCalls(world, {line_width = 3})
+    eq(callsNamed(calls, 'setLineWidth')[1][1], 3, 'custom line width')
+    eq(love.graphics.getLineWidth(), 5, 'restored after the custom width')
+    love.graphics.setLineWidth(1)
+    raises(function() world:draw({alhpa = 1}) end, 'unknown option')
+end)
+
+test('draw draws each collider once and colors it by class', function()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    world:newRectangleCollider(0, 0, 10, 10, {collision_class = 'Wall'})
+    world:newRectangleCollider(50, 0, 10, 10)
+    local calls = drawCalls(world, {class_colors = {Wall = {1, 0, 0}}})
+    eq(#callsNamed(calls, 'polygon'), 2, 'one polygon per collider, not per fixture')
+    local wall_color_before_polygon = false
+    for i, call in ipairs(calls) do
+        if call.name == 'setColor' and call[1] == 1 and call[2] == 0 and call[3] == 0 then
+            wall_color_before_polygon = calls[i + 1].name == 'polygon'
+        end
+    end
+    truthy(wall_color_before_polygon, 'the class color is set right before its shape')
+end)
+
+test('draw shows contacts, bounding boxes, velocities and sleeping bodies', function()
+    local world = newWorld()
+    local box = world:newRectangleCollider(0, 0, 10, 10)
+    box:setLinearVelocity(40, 0)
+    local sleeper = world:newRectangleCollider(100, 0, 10, 10)
+    sleeper.body.asleep = true
+    local ground = world:newRectangleCollider(0, 50, 10, 10, {body_type = 'static'})
+    world.box2d_world.contacts = {
+        love._newContact({nx = 0, ny = 1, positions = {3, 4, 5, 6}}),
+        love._newContact({nx = 0, ny = 1, positions = {9, 9}, touching = false}),
+    }
+
+    local plain = drawCalls(world)
+    eq(#callsNamed(plain, 'rectangle'), 0, 'no bounding boxes by default')
+    eq(#callsNamed(plain, 'line'), 0, 'no velocity or contact lines by default')
+
+    local calls = drawCalls(world, {aabb = true})
+    eq(#callsNamed(calls, 'rectangle'), 3, 'one box per solid fixture')
+    local x1, y1, x2, y2 = box.fixture:getBoundingBox()
+    local found = false
+    for _, call in ipairs(callsNamed(calls, 'rectangle')) do
+        if call[2] == x1 and call[3] == y1 and call[4] == x2 - x1 and call[5] == y2 - y1 then found = true end
+    end
+    truthy(found, 'bounding box of the box collider')
+
+    calls = drawCalls(world, {velocities = true})
+    local lines = callsNamed(calls, 'line')
+    eq(#lines, 1, 'only the moving body gets a velocity line')
+    eq(lines[1][1], 5, 'line starts at the body center x')
+    eq(lines[1][3], 5 + 40 * 0.25, 'line ends one quarter second ahead')
+
+    calls = drawCalls(world, {contacts = true})
+    eq(#callsNamed(calls, 'circle'), 2, 'two contact points of the touching contact')
+    eq(#callsNamed(calls, 'line'), 1, 'one normal line')
+
+    calls = drawCalls(world, {sleeping = true, alpha = 255})
+    local awake_alpha, asleep_alpha
+    for i, call in ipairs(calls) do
+        if call.name == 'polygon' then
+            local color = calls[i - 1]
+            if call[1] == 'line' and not asleep_alpha and color.name == 'setColor' and color[4] < 1 then asleep_alpha = color[4] end
+            if color.name == 'setColor' and color[4] == 1 then awake_alpha = 1 end
+        end
+    end
+    truthy(awake_alpha == 1, 'awake bodies at full alpha')
+    truthy(asleep_alpha and asleep_alpha < 1, 'sleeping bodies are dimmer')
+end)
+
+test('a collider with its own draw replaces the debug shape and draw order sorts colliders', function()
+    local world = newWorld()
+    local function mark(name)
+        return function(_, alpha) love.graphics.calls[#love.graphics.calls + 1] = {name = name, alpha = alpha} end
+    end
+    local first = world:newRectangleCollider(0, 0, 10, 10)
+    local second = world:newRectangleCollider(20, 0, 10, 10)
+    local plain = world:newRectangleCollider(40, 0, 10, 10)
+    first.draw = mark('first')
+    second.draw = mark('second')
+    eq(first:getDrawOrder(), 0, 'default draw order')
+    plain:setDrawOrder(1)
+    first:setDrawOrder(2)
+    second:setDrawOrder(-1)
+    eq(first:getDrawOrder(), 2, 'draw order')
+
+    local calls = drawCalls(world, 128)
+    local sequence = {}
+    for _, call in ipairs(calls) do
+        if call.name == 'first' or call.name == 'second' or call.name == 'polygon' then sequence[#sequence + 1] = call.name end
+    end
+    eq(table.concat(sequence, ','), 'second,polygon,first', 'custom draws and debug shapes in draw order')
+    eq(callsNamed(calls, 'first')[1].alpha, 128, 'alpha passed to the draw hook')
+    eq(love.graphics.getLineWidth(), 1, 'line width after the hook')
 end)
 
 test('a failing constructor leaves no body behind', function()

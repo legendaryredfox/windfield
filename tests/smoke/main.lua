@@ -186,6 +186,79 @@ function love.load()
     check('collider filter: rejected contact passes through with no events', ghost_y > 130 and ghost_enters == 0 and ghost_exits == 0, ghost_y .. ' ' .. ghost_enters .. ' ' .. ghost_exits)
     filter_world:destroy()
 
+    local draw_world = wf.newWorld(0, 300, true)
+    draw_world:addCollisionClass('Wall')
+    draw_world:newRectangleCollider(20, 150, 160, 20, {collision_class = 'Wall', body_type = 'static'})
+    draw_world:newRectangleCollider(60, 110, 30, 40)
+    local mover = draw_world:newCircleCollider(40, 40, 10, {body_type = 'kinematic'})
+    mover:setLinearVelocity(20, 0)
+    for _ = 1, 150 do draw_world:update(1 / 60) end
+    local function render(name, options)
+        local canvas = love.graphics.newCanvas(200, 200)
+        love.graphics.setCanvas(canvas)
+        love.graphics.clear(0, 0, 0, 0)
+        draw_world:draw(options)
+        love.graphics.setCanvas()
+        local data = canvas:newImageData()
+        data:encode('png', 'draw_' .. name .. '.png')
+        return data
+    end
+    local function count(data, predicate)
+        local n = 0
+        for y = 0, data:getHeight() - 1 do
+            for x = 0, data:getWidth() - 1 do
+                local r, g, b, a = data:getPixel(x, y)
+                if predicate(r, g, b, a) then n = n + 1 end
+            end
+        end
+        return n
+    end
+    local function covered(r, g, b, a) return a > 0.05 end
+    local plain = render('plain')
+    local thick = render('line_width', {line_width = 6})
+    check('draw option line_width draws thicker lines', count(thick, covered) > 2 * count(plain, covered), count(plain, covered) .. ' ' .. count(thick, covered))
+    check('draw option class_colors colors the wall', count(render('class_colors', {class_colors = {Wall = {0, 1, 1}}}),
+        function(r, g, b, a) return a > 0.3 and g > 2.5 * r and b > 2.5 * r end) > 20)
+    check('draw option aabb adds gray boxes', count(render('aabb', {aabb = true}),
+        function(r, g, b, a) return math.abs(r - 0.5) < 0.06 and math.abs(g - 0.5) < 0.06 and math.abs(b - 0.5) < 0.06 and a > 0.9 end) > 20)
+    check('draw option velocities adds a green line', count(render('velocities', {velocities = true}),
+        function(r, g, b, a) return a > 0.3 and g > 2.5 * r and g > 2.5 * b end) > 5)
+    check('draw option contacts adds red marks', count(render('contacts', {contacts = true}),
+        function(r, g, b, a) return r > 0.8 and g < 0.35 and b < 0.35 and a > 0.9 end) > 5)
+    local function dim(r, g, b, a) return a > 0.25 and a < 0.55 end
+    local dim_with, dim_without = count(render('sleeping', {sleeping = true}), dim), count(plain, dim)
+    check('draw option sleeping dims sleeping bodies', dim_with > dim_without + 20, dim_without .. ' ' .. dim_with)
+    check('draw restores the line width', love.graphics.getLineWidth() == 1)
+    local function pixelAt(data, x, y)
+        local r, g, b = data:getPixel(x, y)
+        return r > 0.9, g > 0.9, b > 0.9
+    end
+    local magenta = draw_world:newRectangleCollider(120, 20, 20, 20, {body_type = 'static'})
+    local yellow = draw_world:newRectangleCollider(130, 30, 20, 20, {body_type = 'static'})
+    magenta.draw = function() love.graphics.setColor(1, 0, 1) love.graphics.rectangle('fill', 120, 20, 20, 20) end
+    yellow.draw = function() love.graphics.setColor(1, 1, 0) love.graphics.rectangle('fill', 130, 30, 20, 20) end
+    yellow:setDrawOrder(1)
+    local yr, yg, yb = pixelAt(render('order_yellow_top'), 135, 35)
+    check('custom draw hook: the higher draw order is drawn on top', yr and yg and not yb)
+    yellow:setDrawOrder(-1)
+    local mr, mg, mb = pixelAt(render('order_magenta_top'), 135, 35)
+    check('custom draw hook: changing the draw order changes the stacking', mr and not mg and mb)
+    local tr, tg, tb = pixelAt(render('hook_replaces_shape'), 121, 21)
+    check('custom draw hook replaces the debug shape', tr and not tg and tb)
+
+    local cb_world = wf.newWorld(0, 300, true)
+    cb_world:addCollisionClass('Wall')
+    cb_world:addCollisionClass('Ball')
+    cb_world:newRectangleCollider(0, 100, 300, 20, {collision_class = 'Wall', body_type = 'static'})
+    local cb_ball = cb_world:newCircleCollider(60, 0, 8, {collision_class = 'Ball'})
+    local cb_calls = {}
+    cb_ball:onEnter('Wall', function(self, other, data) cb_calls[#cb_calls + 1] = {self, other, data} end)
+    for _ = 1, 120 do cb_world:update(1 / 60) end
+    check('collider:onEnter runs once with the receiver, the other collider and the data',
+        #cb_calls == 1 and cb_calls[1][1] == cb_ball and cb_calls[1][2].collision_class == 'Wall' and type(cb_calls[1][3].ny) == 'number', #cb_calls)
+    cb_world:destroy()
+    draw_world:destroy()
+
     local rules_world = wf.newWorld(0, 300, true)
     rules_world:addCollisionClass('Platform', {one_way = {0, -1}})
     rules_world:addCollisionClass('Belt', {conveyor = 100})

@@ -20,7 +20,7 @@
       * [step](#stepdt)
       * [setFixedStep](#setfixedstepdt-max_steps)
       * [getAlpha](#getalpha)
-      * [draw](#drawalpha)
+      * [draw](#drawalpha_or_options)
       * [destroy](#destroy)
       * [addCollisionClass](#addcollisionclasscollision_class_name-collision_class)
       * [Collider settings](#collider-settings)
@@ -53,6 +53,8 @@
       * [getExitCollisionData](#getexitcollisiondataother_collision_class_name)
       * [getEnters](#getentersother_collision_class_name)
       * [getExits](#getexitsother_collision_class_name)
+      * [onEnter](#onenterother_collision_class_name-callback)
+      * [onExit](#onexitother_collision_class_name-callback)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
       * [setSensor](#setsensorsensor)
@@ -61,6 +63,9 @@
       * [isInterpolated](#isinterpolated)
       * [getRenderPosition](#getrenderposition)
       * [getRenderAngle](#getrenderangle)
+      * [setDrawOrder](#setdraworderorder)
+      * [getDrawOrder](#getdraworder)
+      * [draw hook](#draw-hook)
       * [setPreSolve](#setpresolvecallback)
       * [setPostSolve](#setpostsolvecallback)
       * [addShape](#addshapeshape_name-shape_type-)
@@ -453,18 +458,28 @@ Returns:
 
 ---
 
-#### `:draw(alpha)`
+#### `:draw(alpha_or_options)`
 
-Draws the world, drawing all colliders, joints and world queries (for debugging purposes).
+Draws the world, drawing all colliders, joints and world queries (for debugging purposes). The line width is set to 1 while drawing, so the width you use for your own graphics does not leak into the debug drawing, and your previous line width and color are restored afterwards.
 
 ```lua
 world:draw() -- default drawing
 world:draw(128) -- semi transparent drawing
+world:draw({alpha = 128, line_width = 2, class_colors = {Enemy = {1, 0.3, 0.3}}, contacts = true})
 ```
 
 Arguments:
 
-* `alpha=255` `(number)` - The optional alpha value to use when drawing, from 0 to 255, defaults to 255
+* `alpha_or_options=255` `(number or table)` - A number is the alpha value, from 0 to 255. A table can have:
+  * `[alpha=255]` `(number)` - The alpha value, from 0 to 255
+  * `[line_width=1]` `(number)` - The line width used for every shape
+  * `[class_colors]` `(table)` - Colors by collision class name, each `{r, g, b}` with components from 0 to 1. Classes that are not listed keep the default color
+  * `[contacts=false]` `(boolean)` - Draws a circle on every contact point of touching colliders and a line along the contact normal
+  * `[aabb=false]` `(boolean)` - Draws the bounding box of every shape
+  * `[velocities=false]` `(boolean)` - Draws a line from each moving body to where it would be a quarter of a second later
+  * `[sleeping=false]` `(boolean)` - Draws the bodies that are asleep with 40 percent of the alpha
+
+An unknown key in the table raises an error. Each collider is drawn once; the solid and sensor fixtures of a collider share the same shape.
 
 ---
 
@@ -1099,6 +1114,43 @@ Returns:
 
 ---
 
+#### `:onEnter(other_collision_class_name, callback)`
+
+Calls a function every time this collider starts touching a collider of the given collision class. Like `world:onEnter` the callback runs after the physics step, so it is safe to create or destroy colliders in it. The handlers of a collider are removed when it is destroyed.
+
+```lua
+player:onEnter('Coin', function(player, coin, data)
+    coin:destroy()
+    score = score + 1
+end)
+```
+
+Arguments:
+
+* `other_collision_class_name` `(string)` - The collision class of the other collider
+* `callback` `(function)` - Called as `callback(self, other, data)`, with `data` as in `getEnterCollisionData`. For two colliders of the same class each one is called once
+
+Returns:
+
+* `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
+#### `:onExit(other_collision_class_name, callback)`
+
+Same as `onEnter`, but called when the colliders stop touching.
+
+Arguments:
+
+* `other_collision_class_name` `(string)` - The collision class of the other collider
+* `callback` `(function)` - Called as `callback(self, other, data)`
+
+Returns:
+
+* `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
 #### `:stay(other_collision_class_name)`
 
 Checks for collision stay events from this collider with another. Stay events are generated on every frame when one collider is in contact with another.
@@ -1217,6 +1269,45 @@ Returns the angle to draw the collider at, interpolated the same way as `getRend
 Returns:
 
 * `angle` `(number)` - The angle in radians
+
+---
+
+#### `:setDrawOrder(order)`
+
+Sets the position of this collider in the `world:draw` debug drawing. Colliders with a lower order are drawn first, colliders with the same order keep the order they were created in. The default is 0. This only matters for the debug drawing and for the draw hook below.
+
+```lua
+background_zone:setDrawOrder(-1)
+```
+
+Arguments:
+
+* `order` `(number)` - The draw order
+
+---
+
+#### `:getDrawOrder()`
+
+Returns:
+
+* `order` `(number)` - The draw order, 0 by default
+
+---
+
+#### draw hook
+
+If a collider has a `draw` function, `world:draw` calls it instead of drawing the debug shape of that collider. This lets you draw your own graphics where the colliders are, in the order given by `setDrawOrder`. The color and line width are not reset between colliders, so set what you need inside the function.
+
+```lua
+enemy.collider.draw = function(collider, alpha)
+    love.graphics.setColor(1, 0.3, 0.3, alpha / 255)
+    local x, y = collider:getPosition()
+    love.graphics.circle('fill', x, y, 12)
+end
+world:draw()
+```
+
+The function is called as `collider:draw(alpha)` with the alpha given to `world:draw`, from 0 to 255 (255 when none was given). Bodies that were not created through the library are still drawn as debug shapes.
 
 ---
 
