@@ -17,6 +17,7 @@
    * [World](#world)
       * [newWorld](#newworldxg-yg-sleep-options)
       * [newTimer](#newtimerduration)
+      * [fromSTI](#fromstimap-world-opts)
       * [update](#updatedt)
       * [step](#stepdt)
       * [setFixedStep](#setfixedstepdt-max_steps)
@@ -441,6 +442,48 @@ Arguments:
 Returns:
 
 * `timer` `(table)` - With these methods: `start([duration])` (restart the countdown, optionally with another duration), `update(dt)`, `isActive()` and `consume()` (returns `true` and stops the timer when it was active)
+
+---
+
+#### `.fromSTI(map, world, opts)`
+
+Builds colliders from a map loaded with [Simple-Tiled-Implementation](https://github.com/karai17/Simple-Tiled-Implementation) (STI), so the walls, platforms and zones you draw in Tiled become windfield colliders with collision classes, events and queries. windfield does not require STI: the function only reads the table STI builds, so any table with the same fields works.
+
+```lua
+local sti = require 'sti'
+local wf = require 'windfield'
+
+map = sti('maps/level1.lua')
+world = wf.newWorld(0, 800, true)
+world:addCollisionClass('Wall')
+world:addCollisionClass('Hazard')
+colliders = wf.fromSTI(map, world)
+```
+
+What becomes a collider, following the conventions of the box2d plugin that comes with STI:
+
+* A layer (tile layer or object layer) with the custom property `collidable = true` makes all its tiles or objects collide. In an object layer an object with its own `collidable = true` is also built. Hidden layers count too; use the `layers` option to choose
+* Tiles: a row of neighbouring tiles becomes one rectangle (turn it off with `merge_tiles = false`). The tile size is `map.tilewidth` by `map.tileheight`; collision shapes drawn inside tiles are not read
+* Rectangle objects become rectangle colliders, or polygons when they are rotated. Circles (ellipses with equal width and height) become circle colliders. Other ellipses become polygons with `ellipse_segments` sides. Polygons may be concave (see `newConcavePolygonCollider`). Polylines become chains, or a line for two points. Points, text and tile objects are skipped
+* The collision class is the custom property named by `class_property` on the object, or else on the layer, or else `default_class`. The class has to exist in the world, or the function raises an error before it builds anything
+* Colliders are static unless the object or layer has `dynamic = true` or `kinematic = true`. The properties `sensor`, `friction`, `restitution` and `density` are applied as collider settings
+* `map.offsetx` and `map.offsety` are added to every position
+* Each collider keeps its STI object, `collider:getObject()`, so you can read the name, id and custom properties of what was hit
+
+Arguments:
+
+* `map` `(table)` - A map loaded by STI. It needs `layers` (each with `type`, `name`, `properties`, and `objects` for object layers), `tilewidth`, `tileheight` and, for tile layers, `tileInstances` (a table by tile id of lists with `x`, `y` and `layer`). Objects need `shape`, `x`, `y`, `width`, `height`, `rotation` and `properties`, plus the corner list that STI computes: `rectangle` for rotated rectangles, `polygon` and `polyline`
+* `world` `(World)` - The world that gets the colliders
+* `[opts]` `(table)`:
+  * `[layers]` `(table[string])` - Only these layers, by name
+  * `[class_property='collision_class']` `(string)` - The custom property that holds the collision class
+  * `[default_class='Default']` `(string)` - The class when there is no property
+  * `[merge_tiles=true]` `(boolean)` - Merge neighbouring tiles of a row
+  * `[ellipse_segments=24]` `(number)` - How many sides an ellipse polygon has
+
+Returns:
+
+* `table[Collider]` - The colliders that were created
 
 ---
 

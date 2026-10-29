@@ -900,6 +900,109 @@ test('pooled colliders keep their parked state through a snapshot', function()
     eq(ball:isPooled(), true, 'the pool flag follows the active flag')
 end)
 
+local function stiFixture()
+    local map = dofile('tests/fixtures/sti_collision_map.lua')
+    local by_name = {}
+    for _, layer in ipairs(map.layers) do by_name[layer.name] = layer end
+    for _, instances in pairs(map.tileInstances) do
+        for _, instance in ipairs(instances) do instance.layer = by_name[instance.layer_name] end
+    end
+    return map, by_name
+end
+
+local function stiWorld()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    world:addCollisionClass('Hazard')
+    return world
+end
+
+test('fromSTI builds colliders from the collidable layers and objects of an STI map', function()
+    local map, layers = stiFixture()
+    local world = stiWorld()
+    local colliders = wf.fromSTI(map, world)
+    eq(#colliders, 11, 'two tile rectangles, eight shapes and one collidable object of a plain layer')
+    local by_name = {}
+    for _, collider in ipairs(colliders) do
+        local object = collider:getObject()
+        if object then by_name[object.name] = collider end
+    end
+    local slab = by_name.slab
+    eq(slab.type, 'Rectangle', 'an unrotated rectangle is a rectangle collider')
+    near(select(1, slab:getPosition()), 112, 1e-6, 'slab center x')
+    near(select(2, slab:getPosition()), 48, 1e-6, 'slab center y')
+    eq(slab.body.body_type, 'static', 'static by default')
+    eq(slab.collision_class, 'Default', 'no class property')
+    eq(slab:getObject(), layers.shapes.objects[2], 'the STI object is kept as the collider object')
+    eq(by_name.ramp.type, 'Polygon', 'a rotated rectangle is a polygon through its rotated corners')
+    eq(by_name.pillar.type, 'Circle', 'a circle ellipse is a circle collider')
+    near(select(1, by_name.pillar:getPosition()), 420, 1e-6, 'pillar center x')
+    near(by_name.pillar.shape.radius, 20, 1e-6, 'pillar radius')
+    eq(by_name.oval.type, 'Polygon', 'a real ellipse is a polygon, split into convex pieces')
+    local pieces = 0
+    for _ in pairs(by_name.oval.shapes) do pieces = pieces + 1 end
+    truthy(pieces >= 2, 'a 24 sided ellipse needs more than one convex piece')
+    local l_pieces = 0
+    for _ in pairs(by_name.ell.shapes) do l_pieces = l_pieces + 1 end
+    truthy(l_pieces >= 1 and l_pieces <= 2, 'a concave polygon is split')
+    eq(by_name.rail.type, 'Chain', 'a polyline is a chain')
+    local oval_area = 0
+    for _, shape in pairs(by_name.oval.shapes) do
+        local points, count = shape.points, #shape.points / 2
+        for i = 1, count do
+            local j = i % count + 1
+            oval_area = oval_area + (points[2 * i - 1] * points[2 * j] - points[2 * j - 1] * points[2 * i]) / 2
+        end
+    end
+    near(math.abs(oval_area), 0.5 * 24 * 40 * 20 * math.sin(2 * math.pi / 24), 1e-6, 'ellipse polygon area')
+    eq(by_name.spawn, nil, 'points are skipped')
+    eq(by_name.flowers, nil, 'objects of layers that are not collidable are skipped')
+    truthy(by_name.fence, 'an object with its own collidable property is built')
+
+    local spikes = by_name.spikes
+    eq(spikes.collision_class, 'Hazard', 'class from the object properties')
+    truthy(spikes:isSensor(), 'sensor property')
+    eq(spikes.fixture.calls.setFriction[1], 0.9, 'friction property')
+    local crate = by_name.crate
+    eq(crate.body.body_type, 'dynamic', 'dynamic property')
+    eq(crate.fixture.calls.setRestitution[1], 0.5, 'restitution property')
+
+    local walls = {}
+    for _, collider in ipairs(colliders) do
+        if collider.collision_class == 'Wall' then walls[#walls + 1] = collider end
+    end
+    eq(#walls, 2, 'tile layer: one lone tile and one merged run')
+    table.sort(walls, function(x, y) return select(2, x:getPosition()) < select(2, y:getPosition()) end)
+    near(select(1, walls[1]:getPosition()), 336, 1e-6, 'lone tile center x')
+    near(select(2, walls[2]:getPosition()), 272, 1e-6, 'merged run center y')
+    local x1, _, x2 = walls[2].fixture:getBoundingBox()
+    near(x2 - x1, 128, 1e-6, 'four tiles merged into one rectangle')
+end)
+
+test('fromSTI honors layer filters, the class property name, offsets and validates its input', function()
+    local map = stiFixture()
+    local world = stiWorld()
+    eq(#wf.fromSTI(map, world, {layers = {'decor'}}), 1, 'only the decor layer')
+    eq(#wf.fromSTI(map, world, {layers = {'walls'}}), 2, 'only the tile layer')
+
+    map.layers[1].properties.kind = 'Hazard'
+    local custom = wf.fromSTI(map, world, {layers = {'walls'}, class_property = 'kind'})
+    eq(custom[1].collision_class, 'Hazard', 'custom class property')
+
+    map.offsetx, map.offsety = 100, 200
+    local moved = wf.fromSTI(map, world, {layers = {'decor'}})
+    near(select(1, moved[1]:getPosition()), 80 + 25 + 100, 1e-6, 'map offset x')
+    near(select(2, moved[1]:getPosition()), 280 + 10 + 200, 1e-6, 'map offset y')
+
+    local bare = newWorld()
+    local bodies = #bare:getBodies()
+    raises(function() wf.fromSTI(map, bare) end, 'class missing from the world')
+    eq(#bare:getBodies(), bodies, 'a missing class is found before anything is built')
+    raises(function() wf.fromSTI('map', world) end, 'not a map')
+    raises(function() wf.fromSTI(map, 'world') end, 'not a world')
+    raises(function() wf.fromSTI(map, world, {layerz = {}}) end, 'unknown option')
+end)
+
 local function forcesOn(collider)
     local sum_x, sum_y = 0, 0
     for _, force in ipairs(collider.body.forces or {}) do
