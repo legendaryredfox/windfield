@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.6.0'
+wf._VERSION = '0.7.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -113,6 +113,16 @@ function World.new(wf, xg, yg, sleep, options)
     self.conveyors = {}
     self.has_contact_rules = false
     self.has_draw_order = false
+    self.effectors = {}
+    self.effector_candidates = {}
+    self.effector_callback = function(fixture)
+        local collider = fixture:getUserData()
+        if collider and not collider.destroy_pending and not fixture:isSensor() then
+            local candidates = self.effector_candidates
+            candidates[#candidates + 1] = collider
+        end
+        return true
+    end
     self.query_world = nil
     self.query_body = nil
     self.query_chain_body = nil
@@ -156,6 +166,7 @@ end
 
 function World:update(dt)
     self:collisionEventsClear()
+    if #self.effectors > 0 then self:_applyEffectors() end
     self.stepping = true
     self.box2d_world:update(dt)
     self.stepping = false
@@ -163,6 +174,163 @@ function World:update(dt)
     for i = 1, #queue do queue[i]:_destroy() end
     for i = #queue, 1, -1 do queue[i] = nil end
     if self.has_collision_handlers then self:_dispatchCollisionEvents() end
+end
+
+local effector_keys = {
+    shape = true, x = true, y = true, w = true, h = true, r = true, vertices = true,
+    classes = true, gravity = true, force = true, drag = true, buoyancy = true,
+}
+
+local function isNumber(value) return type(value) == 'number' end
+
+local function isVector(value)
+    return type(value) == 'table' and isNumber(value[1]) and isNumber(value[2])
+end
+
+local function validateRegion(region)
+    local shape = region.shape
+    if shape == 'circle' then
+        if not (isNumber(region.x) and isNumber(region.y) and isNumber(region.r)) then error('A circle effector needs numeric x, y and r.', 4) end
+    elseif shape == 'rectangle' then
+        if not (isNumber(region.x) and isNumber(region.y) and isNumber(region.w) and isNumber(region.h)) then
+            error('A rectangle effector needs numeric x, y, w and h.', 4)
+        end
+    elseif shape == 'polygon' then
+        local vertices = region.vertices
+        if type(vertices) ~= 'table' or #vertices < 6 or #vertices % 2 ~= 0 then error('A polygon effector needs a vertices table with at least 3 points.', 4) end
+    else
+        error('Unknown effector shape ' .. tostring(shape) .. '.', 4)
+    end
+end
+
+local function regionBounds(region)
+    if region.shape == 'circle' then
+        return region.x - region.r, region.y - region.r, region.x + region.r, region.y + region.r
+    elseif region.shape == 'rectangle' then
+        return region.x, region.y, region.x + region.w, region.y + region.h
+    end
+    local vertices = region.vertices
+    local x1, y1, x2, y2 = vertices[1], vertices[2], vertices[1], vertices[2]
+    for i = 3, #vertices, 2 do
+        x1, x2 = math.min(x1, vertices[i]), math.max(x2, vertices[i])
+        y1, y2 = math.min(y1, vertices[i + 1]), math.max(y2, vertices[i + 1])
+    end
+    return x1, y1, x2, y2
+end
+
+local function regionContains(region, px, py)
+    if region.shape == 'circle' then
+        return (px - region.x) ^ 2 + (py - region.y) ^ 2 <= region.r ^ 2
+    elseif region.shape == 'rectangle' then
+        return px >= region.x and px <= region.x + region.w and py >= region.y and py <= region.y + region.h
+    end
+    local vertices, inside = region.vertices, false
+    local j = #vertices - 1
+    for i = 1, #vertices - 1, 2 do
+        local xi, yi, xj, yj = vertices[i], vertices[i + 1], vertices[j], vertices[j + 1]
+        if (yi > py) ~= (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi then inside = not inside end
+        j = i
+    end
+    return inside
+end
+
+function World:addEffector(def)
+    if type(def) ~= 'table' then error('addEffector needs a table.', 2) end
+    for key in pairs(def) do
+        if not effector_keys[key] then error('Unknown effector key ' .. tostring(key) .. '.', 2) end
+    end
+    local region = {shape = def.shape, x = def.x, y = def.y, w = def.w, h = def.h, r = def.r, vertices = def.vertices}
+    validateRegion(region)
+    if def.gravity ~= nil and not isVector(def.gravity) then error('Effector gravity must be {gx, gy}.', 2) end
+    if def.force ~= nil and not isVector(def.force) then error('Effector force must be {fx, fy}.', 2) end
+    if def.drag ~= nil and not isNumber(def.drag) then error('Effector drag must be a number.', 2) end
+    if def.buoyancy ~= nil and not (type(def.buoyancy) == 'table' and isNumber(def.buoyancy.density) and isNumber(def.buoyancy.level)) then
+        error('Effector buoyancy must be {density = d, level = y}.', 2)
+    end
+    if def.gravity == nil and def.force == nil and def.drag == nil and def.buoyancy == nil then
+        error('An effector needs at least one of gravity, force, drag or buoyancy.', 2)
+    end
+
+    local effector = {
+        region = region, classes = def.classes or {'All'}, enabled = true,
+        gravity = def.gravity, force = def.force, drag = def.drag, buoyancy = def.buoyancy,
+    }
+    table.insert(self.effectors, effector)
+    local world = self
+    local function check()
+        if effector.destroyed then error('The effector was destroyed.', 3) end
+    end
+    return {
+        setEnabled = function(_, enabled) check() effector.enabled = enabled and true or false end,
+        isEnabled = function() check() return effector.enabled end,
+        setGeometry = function(_, geometry)
+            check()
+            local updated = {}
+            for key, value in pairs(region) do updated[key] = value end
+            for key, value in pairs(geometry) do updated[key] = value end
+            validateRegion(updated)
+            effector.region = updated
+        end,
+        destroy = function()
+            if effector.destroyed then return end
+            effector.destroyed = true
+            for i = #world.effectors, 1, -1 do
+                if world.effectors[i] == effector then table.remove(world.effectors, i) end
+            end
+        end,
+    }
+end
+
+function World:_applyEffectors()
+    local gx, gy = self.box2d_world:getGravity()
+    local candidates = self.effector_candidates
+    for _, effector in ipairs(self.effectors) do
+        if effector.enabled then
+            local region = effector.region
+            local allowed = self:_collisionClassFilter(effector.classes)
+            local x1, y1, x2, y2 = regionBounds(region)
+            self.box2d_world:queryBoundingBox(x1, y1, x2, y2, self.effector_callback)
+            local done = {}
+            for i = 1, #candidates do
+                local collider = candidates[i]
+                local body = collider.body
+                if body and not done[collider] and body:getType() == 'dynamic'
+                    and (not allowed or allowed[collider.collision_class]) then
+                    done[collider] = true
+                    local px, py = body:getPosition()
+                    if regionContains(region, px, py) then self:_applyEffector(effector, collider, body, gx, gy) end
+                end
+            end
+            for i = #candidates, 1, -1 do candidates[i] = nil end
+        end
+    end
+end
+
+function World:_applyEffector(effector, collider, body, gx, gy)
+    local mass = body:getMass()
+    local fx, fy = 0, 0
+    if effector.gravity then fx, fy = fx + mass * effector.gravity[1], fy + mass * effector.gravity[2] end
+    if effector.force then fx, fy = fx + effector.force[1], fy + effector.force[2] end
+    if effector.drag then
+        local vx, vy = body:getLinearVelocity()
+        fx, fy = fx - effector.drag * mass * vx, fy - effector.drag * mass * vy
+    end
+    local buoyancy = effector.buoyancy
+    local gravity = math.sqrt(gx * gx + gy * gy)
+    if buoyancy and gravity > 0 then
+        local density = collider.fixture:getDensity()
+        local top, bottom = math.huge, -math.huge
+        for _, fixture in pairs(collider.fixtures) do
+            local _, y1, _, y2 = fixture:getBoundingBox(1)
+            top, bottom = math.min(top, y1), math.max(bottom, y2)
+        end
+        if density > 0 and bottom > top then
+            local submerged = math.max(0, math.min(1, (bottom - buoyancy.level) / (bottom - top)))
+            local lift = submerged * mass * gravity * buoyancy.density / density
+            fx, fy = fx - lift * gx / gravity, fy - lift * gy / gravity
+        end
+    end
+    if fx ~= 0 or fy ~= 0 then body:applyForce(fx, fy) end
 end
 
 function World:setFixedStep(dt, max_steps)

@@ -112,6 +112,30 @@ function World:setExplicitCollisionEvents(value) end
 ---@param collision_class? windfield.CollisionClass
 function World:addCollisionClass(collision_class_name, collision_class) end
 
+---@class windfield.EffectorDef
+---@field shape 'circle'|'rectangle'|'polygon'
+---@field x? number Circle center or rectangle top left.
+---@field y? number
+---@field r? number For 'circle'.
+---@field w? number For 'rectangle'.
+---@field h? number For 'rectangle'.
+---@field vertices? number[] For 'polygon'.
+---@field classes? windfield.ClassNames Default {'All'}.
+---@field gravity? number[] `{gx, gy}`, acceleration in pixels per second squared.
+---@field force? number[] `{fx, fy}`, as in `Body:applyForce`.
+---@field drag? number Adds the acceleration `-drag * velocity`.
+---@field buoyancy? {density: number, level: number} Fluid below the horizontal line y = level.
+
+---@class windfield.Effector
+---@field setEnabled fun(self: windfield.Effector, enabled: boolean)
+---@field isEnabled fun(self: windfield.Effector): boolean
+---@field setGeometry fun(self: windfield.Effector, geometry: table)
+---@field destroy fun(self: windfield.Effector)
+
+---@param def windfield.EffectorDef
+---@return windfield.Effector
+function World:addEffector(def) end
+
 ---@param class_a string
 ---@param class_b string
 ---@param fn fun(a: windfield.Collider, b: windfield.Collider, data: windfield.CollisionData)

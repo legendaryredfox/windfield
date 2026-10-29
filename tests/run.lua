@@ -758,6 +758,105 @@ test('concave polygon colliders reject bad input without leaving a body behind',
     eq(#world:getBodies(), bodies, 'no bodies left behind')
 end)
 
+local function forcesOn(collider)
+    local sum_x, sum_y = 0, 0
+    for _, force in ipairs(collider.body.forces or {}) do
+        sum_x, sum_y = sum_x + force[1], sum_y + force[2]
+    end
+    return sum_x, sum_y, #(collider.body.forces or {})
+end
+
+test('effectors push the colliders whose center is inside the region', function()
+    local world = newWorld()
+    local inside = world:newCircleCollider(50, 50, 5)
+    local outside = world:newCircleCollider(500, 500, 5)
+    local anchored = world:newCircleCollider(60, 60, 5, {body_type = 'static'})
+    inside.body.mass = 2
+    local wind = world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 100, h = 100, force = {10, -4}})
+    world:addEffector({shape = 'circle', x = 50, y = 50, r = 30, gravity = {0, 100}})
+    world:update(1 / 60)
+    local fx, fy = forcesOn(inside)
+    eq(fx, 10, 'wind force x')
+    eq(fy, -4 + 2 * 100, 'wind plus gravity (mass times acceleration)')
+    eq(select(3, forcesOn(outside)), 0, 'outside the regions')
+    eq(select(3, forcesOn(anchored)), 0, 'static bodies are skipped')
+
+    inside.body.forces = {}
+    wind:setEnabled(false)
+    eq(wind:isEnabled(), false, 'isEnabled')
+    world:update(1 / 60)
+    eq((forcesOn(inside)), 0, 'a disabled effector does nothing')
+    wind:setEnabled(true)
+    inside.body.forces = {}
+    wind:setGeometry({x = 200, y = 200, w = 10, h = 10})
+    world:update(1 / 60)
+    eq((forcesOn(inside)), 0, 'the region moved away')
+    wind:destroy()
+    inside.body.forces = {}
+    world:update(1 / 60)
+    eq(select(3, forcesOn(inside)), 1, 'a destroyed effector stops acting, the other one still acts')
+    wind:destroy()
+    raises(function() wind:setEnabled(true) end, 'a destroyed handle')
+end)
+
+test('effector regions can be circles, rectangles and polygons and can filter classes', function()
+    local world = newWorld()
+    world:addCollisionClass('Crate')
+    local crate = world:newCircleCollider(10, 10, 2, {collision_class = 'Crate'})
+    local ball = world:newCircleCollider(10, 10, 2)
+    world:addEffector({shape = 'polygon', vertices = {0, 0, 40, 0, 0, 40}, force = {1, 0}, classes = {'Crate'}})
+    world:update(1 / 60)
+    eq(select(3, forcesOn(crate)), 1, 'class in the filter, inside the triangle')
+    eq(select(3, forcesOn(ball)), 0, 'class outside the filter')
+    crate:setPosition(35, 35)
+    crate.body.forces = {}
+    world:update(1 / 60)
+    eq(select(3, forcesOn(crate)), 0, 'outside the triangle but inside its bounding box')
+    crate:setPosition(10, 20)
+    crate.body.forces = {}
+    world:update(1 / 60)
+    eq(select(3, forcesOn(crate)), 1, 'inside the triangle')
+end)
+
+test('drag and buoyancy effectors', function()
+    local world = newWorld()
+    world:setGravity(0, 100)
+    local box = world:newRectangleCollider(0, 0, 10, 10)
+    box.body.mass = 2
+    box:setLinearVelocity(30, -10)
+    world:addEffector({shape = 'rectangle', x = -50, y = -50, w = 200, h = 200, drag = 3})
+    world:update(1 / 60)
+    local fx, fy = forcesOn(box)
+    near(fx, -3 * 2 * 30, 1e-9, 'drag opposes the velocity along x')
+    near(fy, 3 * 2 * 10, 1e-9, 'drag opposes the velocity along y')
+
+    local pool = world:addEffector({shape = 'rectangle', x = -50, y = -50, w = 200, h = 200, buoyancy = {density = 2, level = 5}})
+    box.body.forces = {}
+    box:setLinearVelocity(0, 0)
+    world:update(1 / 60)
+    local _, by = forcesOn(box)
+    near(by, -(0.5 * 2 * 100 * 2) - 0, 1e-6, 'half submerged: fraction times mass times gravity times density ratio, upwards')
+
+    pool:setGeometry({x = -50, y = -50, w = 200, h = 200})
+    box.body.forces = {}
+    world:setGravity(0, 0)
+    world:update(1 / 60)
+    eq(select(3, forcesOn(box)), 0, 'no gravity means no buoyancy and no drag at rest')
+end)
+
+test('effector definitions are validated', function()
+    local world = newWorld()
+    raises(function() world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 1, h = 1}) end, 'no effect')
+    raises(function() world:addEffector({shape = 'star', force = {1, 0}}) end, 'unknown shape')
+    raises(function() world:addEffector({shape = 'circle', x = 0, y = 0, force = {1, 0}}) end, 'missing radius')
+    raises(function() world:addEffector({shape = 'circle', x = 0, y = 0, r = 1, force = {1}}) end, 'bad force')
+    raises(function() world:addEffector({shape = 'circle', x = 0, y = 0, r = 1, drag = 'x'}) end, 'bad drag')
+    raises(function() world:addEffector({shape = 'circle', x = 0, y = 0, r = 1, buoyancy = {density = 1}}) end, 'missing level')
+    raises(function() world:addEffector({shape = 'circle', x = 0, y = 0, r = 1, force = {1, 0}, forse = 1}) end, 'unknown key')
+    raises(function() world:addEffector({shape = 'polygon', vertices = {0, 0, 1, 1}, force = {1, 0}}) end, 'polygon with two points')
+    raises(function() world:addEffector('wind') end, 'not a table')
+end)
+
 test('queryShape validates the shape definition and releases its fixtures', function()
     local world = newWorld()
     raises(function() world:queryShape({type = 'triangle'}, 0, 0) end, 'unknown type')
