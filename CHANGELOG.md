@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+Tooling and polish: CI, lint, rockspec, debug draw options, per collider callbacks and a draw hook. Source compatible except for the draw changes listed under Changed.
 
 ### Added
 
