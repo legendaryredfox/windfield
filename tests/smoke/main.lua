@@ -283,6 +283,84 @@ function love.load()
     wheel:destroy()
     concave_world:destroy()
 
+    local joint_world = wf.newWorld(0, 0, true)
+    local ja = joint_world:newRectangleCollider(0, 0, 20, 20)
+    local jb = joint_world:newRectangleCollider(60, 0, 20, 20)
+    local jc = joint_world:newRectangleCollider(120, 0, 20, 20)
+    local joints = {
+        DistanceJoint = joint_world:newDistanceJoint(ja, jb, 10, 10, 70, 10, false, {frequency = 4, damping_ratio = 0.5}),
+        RevoluteJoint = joint_world:newRevoluteJoint(ja, jb, 40, 10, false, {limits = {-0.5, 0.5}, motor = {speed = 1, torque = 100}}),
+        PrismaticJoint = joint_world:newPrismaticJoint(jb, jc, 100, 10, 1, 0, false, {limits = {-20, 20}, motor = {speed = 5, force = 500}}),
+        WeldJoint = joint_world:newWeldJoint(jb, jc, 100, 10),
+        RopeJoint = joint_world:newRopeJoint(ja, jc, 10, 10, 130, 10, 150),
+        WheelJoint = joint_world:newWheelJoint(ja, jc, 70, 10, 0, 1, false, {frequency = 5, damping_ratio = 0.7}),
+        FrictionJoint = joint_world:newFrictionJoint(ja, jb, 40, 10),
+        MotorJoint = joint_world:newMotorJoint(jb, jc, 0.3),
+        MouseJoint = joint_world:newMouseJoint(ja, 10, 10),
+        PulleyJoint = joint_world:newPulleyJoint(ja, jb, 0, -50, 60, -50, 10, 10, 70, 10, 1),
+    }
+    joints.GearJoint = joint_world:newGearJoint(joints.RevoluteJoint, joints.PrismaticJoint, 1)
+    local mismatched = {}
+    for name, joint in pairs(joints) do
+        if joint:type() ~= name then mismatched[#mismatched + 1] = name .. '=' .. joint:type() end
+    end
+    check('named joint constructors build every LÖVE joint type', #mismatched == 0, table.concat(mismatched, ', '))
+    check('joint options reach LÖVE', joints.RevoluteJoint:areLimitsEnabled() and joints.RevoluteJoint:isMotorEnabled()
+        and math.abs(joints.RevoluteJoint:getMotorSpeed() - 1) < 1e-6 and joints.PrismaticJoint:isMotorEnabled()
+        and math.abs(joints.DistanceJoint:getFrequency() - 4) < 1e-6 and math.abs(joints.WheelJoint:getSpringFrequency() - 5) < 1e-6)
+    check('getJointsOf lists the joints of a collider', #joint_world:getJointsOf(jb) >= 5 and #joint_world:getJointsOf(joint_world:newCircleCollider(500, 500, 5)) == 0)
+    check('getJointsOf sees a joint removed with removeJoint', (function()
+        local before = #joint_world:getJointsOf(ja)
+        joint_world:removeJoint(joints.FrictionJoint)
+        return #joint_world:getJointsOf(ja) == before - 1
+    end)())
+    joint_world:destroy()
+
+    local build_world = wf.newWorld(0, 500, true)
+    local rope = build_world:newRope({x1 = 100, y1 = 50, x2 = 100, y2 = 250, segments = 10, pin_a = true})
+    check('rope: N segments and N-1 joints plus the pin', #rope.parts == 10 and #rope.joints == 10 and #build_world:getBodies() == 11,
+        #rope.parts .. ' ' .. #rope.joints .. ' ' .. #build_world:getBodies())
+    local bridge = build_world:newBridge({x1 = 300, y1 = 300, x2 = 700, y2 = 300, segments = 10})
+    local load = build_world:newRectangleCollider(480, 200, 40, 40)
+    for _ = 1, 240 do build_world:update(1 / 60) end
+    local lowest, finite = -math.huge, true
+    for _, plank in ipairs(bridge.parts) do
+        local x, y = plank:getPosition()
+        if x ~= x or y ~= y then finite = false end
+        lowest = math.max(lowest, y)
+    end
+    check('bridge: sags under a load without exploding', finite and lowest > 305 and lowest < 520, lowest)
+    local first_x = bridge.parts[1]:getPosition()
+    local last_x = bridge.parts[10]:getPosition()
+    check('bridge: the pinned ends stay put', math.abs(first_x - 320) < 12 and math.abs(last_x - 680) < 12, first_x .. ' ' .. last_x)
+    local rope_tip_x, rope_tip_y = rope.parts[10]:getPosition()
+    check('rope: hangs below its pin and stays attached', rope_tip_y > 100 and math.abs(rope_tip_x - 100) < 60, rope_tip_x .. ' ' .. rope_tip_y)
+    local bodies_before, joints_before = #build_world:getBodies(), #build_world:getJoints()
+    bridge:destroy()
+    check('bridge: destroy removes every plank, pin and joint', #build_world:getBodies() == bodies_before - 12 and #build_world:getJoints() == joints_before - 11,
+        #build_world:getBodies() .. ' ' .. #build_world:getJoints())
+    rope:destroy()
+
+    local doll = build_world:newRagdoll({
+        parts = {
+            torso = {shape = 'rectangle', x = 400, y = 0, w = 20, h = 40},
+            head = {shape = 'circle', x = 410, y = -14, r = 8},
+            arm = {shape = 'rectangle', x = 420, y = 0, w = 30, h = 8},
+        },
+        joints = {
+            {type = 'RevoluteJoint', a = 'torso', b = 'head', args = {410, -6}, options = {limits = {-0.6, 0.6}}},
+            {type = 'RevoluteJoint', a = 'torso', b = 'arm', args = {420, 4}, options = {limits = {-1, 1}}},
+        },
+    })
+    local rest_floor = build_world:newRectangleCollider(200, 400, 600, 20, {body_type = 'static'})
+    for _ = 1, 240 do build_world:update(1 / 60) end
+    local hx, hy = doll.parts.head:getPosition()
+    local tx, ty = doll.parts.torso:getPosition()
+    check('ragdoll: parts stay joined and settle on the floor', math.abs(hx - tx) < 40 and math.abs(hy - ty) < 60 and ty > 300 and ty < 400, hx .. ' ' .. hy .. ' ' .. tx .. ' ' .. ty)
+    doll:destroy()
+    check('ragdoll: destroy removes the parts and joints', #doll.parts.torso.world:getJointsOf(rest_floor) == 0)
+    build_world:destroy()
+
     local fx_world = wf.newWorld(0, 0, true)
     local gust = fx_world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 300, h = 100, gravity = {100, 0}})
     local inside = fx_world:newCircleCollider(50, 50, 10)

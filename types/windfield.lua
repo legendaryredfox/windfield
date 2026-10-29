@@ -294,6 +294,124 @@ function World:raycast(x1, y1, x2, y2, collision_class_names, mode) end
 ---@return love.Joint
 function World:addJoint(joint_type, ...) end
 
+---@class windfield.JointOptions
+---@field limits? number[] `{lower, upper}`.
+---@field motor? {speed: number, torque?: number, force?: number}
+---@field frequency? number Spring frequency.
+---@field damping_ratio? number Spring damping.
+
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any Arguments of `love.physics.newDistanceJoint` after the bodies, optionally ending with a `windfield.JointOptions` table.
+---@return love.Joint
+function World:newDistanceJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newRevoluteJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newPrismaticJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newWeldJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newRopeJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newWheelJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newFrictionJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newMotorJoint(a, b, ...) end
+---@param a windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newMouseJoint(a, ...) end
+---@param a windfield.Collider
+---@param b windfield.Collider
+---@param ... any
+---@return love.Joint
+function World:newPulleyJoint(a, b, ...) end
+---@param joint_a love.Joint
+---@param joint_b love.Joint
+---@param ... any
+---@return love.Joint
+function World:newGearJoint(joint_a, joint_b, ...) end
+
+---@param collider windfield.Collider
+---@return love.Joint[]
+function World:getJointsOf(collider) end
+
+---@class windfield.Assembly
+---@field parts table<string|integer, windfield.Collider>
+---@field joints love.Joint[]
+---@field destroy fun(self: windfield.Assembly)
+
+---@class windfield.LinkedDef
+---@field x1 number
+---@field y1 number
+---@field x2 number
+---@field y2 number
+---@field segments? integer Default 10.
+---@field thickness? number Rope and bridge pieces. Default 6.
+---@field radius? number Chain links. Default 4.
+---@field settings? windfield.ColliderSettings
+---@field pin_a? boolean
+---@field pin_b? boolean
+---@field anchor_a? windfield.Collider
+---@field anchor_b? windfield.Collider
+
+---@param def windfield.LinkedDef
+---@return windfield.Assembly
+function World:newRope(def) end
+
+---@param def windfield.LinkedDef
+---@return windfield.Assembly
+function World:newChain(def) end
+
+---@param def windfield.LinkedDef Both ends are pinned unless `pin_a` or `pin_b` is false.
+---@return windfield.Assembly
+function World:newBridge(def) end
+
+---@class windfield.RagdollPart
+---@field shape 'circle'|'rectangle'
+---@field x number
+---@field y number
+---@field r? number
+---@field w? number
+---@field h? number
+---@field angle? number
+---@field settings? windfield.ColliderSettings
+
+---@class windfield.RagdollJoint
+---@field type string Joint type name as in `addJoint`.
+---@field a string Part name.
+---@field b string Part name.
+---@field args? any[] Arguments after the two bodies.
+---@field collide? boolean
+---@field options? windfield.JointOptions
+
+---@param def {parts: table<string, windfield.RagdollPart>, joints: windfield.RagdollJoint[]}
+---@return windfield.Assembly
+function World:newRagdoll(def) end
+
 ---@param joint love.Joint
 function World:removeJoint(joint) end
 

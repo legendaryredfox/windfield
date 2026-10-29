@@ -43,6 +43,12 @@
       * [getColliderAt](#getcollideratx-y-collision_class_names)
       * [addJoint](#addjointjoint_type-)
       * [removeJoint](#removejointjoint)
+      * [Joint constructors](#joint-constructors)
+      * [getJointsOf](#getjointsofcollider)
+      * [newRope](#newropedef)
+      * [newChain](#newchaindef)
+      * [newBridge](#newbridgedef)
+      * [newRagdoll](#newragdolldef)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
       * [onEnter](#onenterclass_a-class_b-callback)
@@ -961,8 +967,8 @@ joint = world:addJoint('RevoluteJoint', collider_1, collider_2, 50, 50, true)
 
 Arguments:
 
-* `joint_type` `(string)` - The joint type, it can be `'DistanceJoint'`, `'FrictionJoint'`, `'GearJoint'`, `'MouseJoint'`, `'PrismaticJoint'`, `'PulleyJoint'`, `'RevoluteJoint'`, `'RopeJoint'`, `'WeldJoint'` or `'WheelJoint'`
-* `...` `(*)` - The joint creation arguments that are different for each joint type, check [here](https://love2d.org/wiki/Joint) for more details
+* `joint_type` `(string)` - The joint type, it can be `'DistanceJoint'`, `'FrictionJoint'`, `'GearJoint'`, `'MotorJoint'`, `'MouseJoint'`, `'PrismaticJoint'`, `'PulleyJoint'`, `'RevoluteJoint'`, `'RopeJoint'`, `'WeldJoint'` or `'WheelJoint'`
+* `...` `(*)` - The joint creation arguments that are different for each joint type, check [here](https://love2d.org/wiki/Joint) for more details. Colliders are replaced by their body. A table as the last argument is read as the joint options described in "Joint constructors"
 
 Returns:
 
@@ -982,6 +988,142 @@ world:removeJoint(joint)
 Arguments:
 
 * `joint` `(Joint)` - The joint to be removed
+
+---
+
+#### Joint constructors
+
+One constructor for every LÖVE joint type, so a joint reads like the other `world:new...` calls. Each one takes the same arguments as the LÖVE function `love.physics.new<Type>`, with colliders where LÖVE wants bodies, and it is the same as calling `addJoint` with the joint type name.
+
+```lua
+local hinge = world:newRevoluteJoint(door, frame, 100, 200, false, {limits = {-1.5, 0}, motor = {speed = 2, torque = 500}})
+local spring = world:newDistanceJoint(ball, ceiling, bx, by, cx, cy, false, {frequency = 3, damping_ratio = 0.4})
+local piston = world:newPrismaticJoint(piston, base, x, y, 0, -1, false, {limits = {0, 80}, motor = {speed = 40, force = 2000}})
+```
+
+The constructors are `newDistanceJoint`, `newRevoluteJoint`, `newPrismaticJoint`, `newWeldJoint`, `newRopeJoint`, `newWheelJoint`, `newFrictionJoint`, `newMotorJoint`, `newMouseJoint`, `newPulleyJoint` and `newGearJoint`.
+
+The last argument can be a table of options, applied to the new joint:
+
+* `limits` `({lower, upper})` - Angle limits in radians (revolute) or translation limits in pixels (prismatic, wheel)
+* `motor` `({speed, torque, force})` - Turns the motor on with this speed. `torque` is the maximum motor torque (revolute, wheel) and `force` the maximum motor force (prismatic)
+* `frequency` `(number)` and `damping_ratio` `(number)` - The spring of distance, weld and wheel joints
+* An unknown key raises an error before the joint is created
+
+---
+
+#### `:getJointsOf(collider)`
+
+Returns the joints attached to a collider.
+
+```lua
+for _, joint in ipairs(world:getJointsOf(collider)) do world:removeJoint(joint) end
+```
+
+Arguments:
+
+* `collider` `(Collider)` - The collider
+
+Returns:
+
+* `table[Joint]` - The joints
+
+---
+
+#### `:newRope(def)`
+
+Builds a rope: a row of thin rectangles from one point to another, each pair joined by a revolute joint. All the pieces are normal colliders with the collision class and settings you give.
+
+```lua
+local rope = world:newRope({x1 = 400, y1 = 50, x2 = 400, y2 = 300, segments = 12, thickness = 4, pin_a = true,
+                            settings = {collision_class = 'Rope'}})
+rope.parts[12]:applyLinearImpulse(200, 0)
+rope:destroy()
+```
+
+Arguments:
+
+* `def` `(table)`:
+  * `x1`, `y1`, `x2`, `y2` `(number)` - The two end points
+  * `[segments=10]` `(number)` - How many pieces, a whole number of at least 1
+  * `[thickness=6]` `(number)` - The thickness of every piece
+  * `[settings]` `(table)` - Collider settings given to every piece
+  * `[pin_a]`, `[pin_b]` `(boolean)` - Create a small static collider at the first or last end point and join the rope to it
+  * `[anchor_a]`, `[anchor_b]` `(Collider)` - Join the first or last end point to a collider you already have
+
+Returns:
+
+* `assembly` `(table)` - `parts` (the colliders in order, plus `pin_a` and `pin_b` when they were created), `joints` (a rope of N segments has N-1 joints between pieces, plus one for each pin or anchor) and `destroy()`, which removes every joint and collider of the rope
+
+An unknown key, equal end points or a failing piece raise an error and leave nothing behind.
+
+---
+
+#### `:newChain(def)`
+
+Same as `newRope`, but the pieces are circles placed along the line, from the first end point to the last one. Use `radius` (default 4) instead of `thickness`.
+
+```lua
+local chain = world:newChain({x1 = 100, y1 = 100, x2 = 300, y2 = 100, segments = 8, radius = 6, pin_a = true})
+```
+
+Arguments:
+
+* `def` `(table)` - As in `newRope`, with `radius` in place of `thickness`
+
+Returns:
+
+* `assembly` `(table)` - As in `newRope`, with N links and N-1 joints between them
+
+---
+
+#### `:newBridge(def)`
+
+Same as `newRope`, but both ends are pinned by default (`pin_a` and `pin_b` are `true`), so the planks hang between two fixed points and sag under load.
+
+```lua
+local bridge = world:newBridge({x1 = 300, y1 = 300, x2 = 700, y2 = 300, segments = 10, thickness = 8})
+```
+
+Arguments:
+
+* `def` `(table)` - As in `newRope`. Pass `pin_a = false` or `pin_b = false` to leave an end free
+
+Returns:
+
+* `assembly` `(table)` - As in `newRope`
+
+---
+
+#### `:newRagdoll(def)`
+
+Builds a set of named parts held together by joints, for characters and other jointed objects. The parts are colliders, the joints are created through `addJoint`, so every joint type and option is available.
+
+```lua
+local doll = world:newRagdoll({
+    parts = {
+        torso = {shape = 'rectangle', x = 400, y = 100, w = 20, h = 40},
+        head = {shape = 'circle', x = 410, y = 86, r = 8, settings = {collision_class = 'Ragdoll'}},
+    },
+    joints = {
+        {type = 'RevoluteJoint', a = 'torso', b = 'head', args = {410, 94}, options = {limits = {-0.6, 0.6}}},
+    },
+})
+doll.parts.head:applyLinearImpulse(0, -50)
+doll:destroy()
+```
+
+Arguments:
+
+* `def` `(table)`:
+  * `parts` `(table)` - Parts by name. A part has a `shape` (`'circle'` with `x`, `y`, `r`, or `'rectangle'` with `x`, `y` (top left), `w`, `h`), an optional `angle` and optional `settings` for the collider
+  * `joints` `(table)` - A list of joints. Each has `type` (a joint type name as in `addJoint`), `a` and `b` (part names), `args` (the arguments after the two bodies, for example the anchor), optionally `collide` (the `collideConnected` flag) and `options` (as in "Joint constructors")
+
+Returns:
+
+* `assembly` `(table)` - `parts` (colliders by name), `joints` (a list) and `destroy()`
+
+Parts that are joined together do not collide with each other unless `collide` is `true`. An unknown part name, shape or key raises an error and leaves nothing behind.
 
 ---
 
