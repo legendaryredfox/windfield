@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+Core features: settings keys, fixed timestep, sensors, raycast, point queries, collider filter, one-way platforms and conveyors, LuaLS types. Source compatible except for the changes listed under Changed.
 
 ### Added
 
@@ -8,10 +10,18 @@
 - Collider `settings` keys: `bullet`, `fixed_rotation`, `gravity_scale`, `linear_damping`, `angular_damping`, `sleeping_allowed`, `active`, `angle`, `restitution`, `friction`, `density`, `object`.
 - `World:step(dt)`, `World:setFixedStep(dt, max_steps)` and `World:getAlpha()`: fixed time step stepping with an accumulator and a step cap.
 - `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
+- Sensors: `addCollisionClass(name, {sensor = true})`, the `sensor` collider setting, `Collider:setSensor` and `Collider:isSensor`.
+- LuaLS type definitions in `types/windfield.lua` and a `.luarc.json`.
+- `World:raycast(x1, y1, x2, y2, classes, mode)`: hits with point, normal and fraction, sorted by distance, or only the closest.
+- `World:queryPoint(x, y, classes)` and `World:getColliderAt(x, y, classes)`: exact point queries.
+- `World:setColliderFilter(fn)`: reject contacts between colliders from Lua, with no response and no events.
+- Collision class options `one_way = {nx, ny}` (one-way platforms) and `conveyor = speed` (conveyor belts, in pixels per second).
 
 ### Changed
 
+- `Collider:setSensor` and `Collider:isSensor` no longer reach the Box2D fixture. Calling `setSensor(true)` used to make the solid fixture a sensor and the collider reported no events (upstream issue 31); now it makes the whole collider a sensor with events.
 - Collider constructors raise an error for unknown `settings` keys. Before, they were ignored.
+- Colliders switched with `setSensor` and sensor classes are returned by the area, point and ray queries like any other collider; filter by class to leave them out. Before, `setSensor` through the fixture hid the collider from queries.
 - Creating a world no longer resets the physics meter to `32` when the meter was already set by an earlier world.
 
 ## 0.1.0

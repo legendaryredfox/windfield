@@ -105,6 +105,111 @@ function love.load()
     check('render position sits between the last two steps', y_render > y_before and y_render < y_now, y_before .. ' ' .. y_render .. ' ' .. y_now)
     step_world:destroy()
 
+    local function dropPlayer(configure)
+        local w = wf.newWorld(0, 0, true)
+        w:addCollisionClass('Player')
+        w:addCollisionClass('Zone', {sensor = true})
+        w:addCollisionClass('Pickup')
+        local target = configure(w)
+        local player = w:newCircleCollider(100, 0, 8, {collision_class = 'Player'})
+        player:setLinearVelocity(0, 200)
+        local enters, stays, exits = 0, 0, 0
+        for _ = 1, 120 do
+            w:update(1 / 60)
+            if target:enter('Player') then enters = enters + 1 end
+            if target:stay('Player') then stays = stays + 1 end
+            if target:exit('Player') then exits = exits + 1 end
+        end
+        local _, y = player:getPosition()
+        w:destroy()
+        return enters, stays, exits, y
+    end
+    local enters, stays, exits, y = dropPlayer(function(w)
+        return w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Zone', body_type = 'static'})
+    end)
+    check('sensor class: enter, stay, exit and passes through', enters == 1 and stays > 0 and exits == 1 and y > 130, enters .. ' ' .. stays .. ' ' .. exits .. ' ' .. y)
+    enters, stays, exits, y = dropPlayer(function(w)
+        local pickup = w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Pickup', body_type = 'static'})
+        pickup:setSensor(true)
+        return pickup
+    end)
+    check('setSensor(true) at runtime: events and passes through', enters == 1 and stays > 0 and exits == 1 and y > 130, enters .. ' ' .. stays .. ' ' .. exits .. ' ' .. y)
+    enters, stays, exits, y = dropPlayer(function(w)
+        local pickup = w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Pickup', body_type = 'static'})
+        pickup:setSensor(true)
+        pickup:setSensor(false)
+        return pickup
+    end)
+    check('setSensor(false) makes the collider solid again', y < 100 and enters >= 1, enters .. ' ' .. y)
+
+    local ray_world = wf.newWorld(0, 0, true)
+    ray_world:addCollisionClass('Wall')
+    ray_world:addCollisionClass('Zone', {sensor = true})
+    local rect = ray_world:newRectangleCollider(100, -10, 20, 20, {collision_class = 'Wall', body_type = 'static'})
+    local ball = ray_world:newCircleCollider(200, 0, 10, {body_type = 'static'})
+    local zone = ray_world:newRectangleCollider(50, -10, 10, 20, {collision_class = 'Zone', body_type = 'static'})
+    ray_world:update(0)
+    local hits = ray_world:raycast(0, 0, 300, 0)
+    check('raycast: every collider, sorted by distance', #hits == 3 and hits[1].collider == zone and hits[2].collider == rect
+        and hits[3].collider == ball, #hits)
+    check('raycast: hit point and normal', math.abs(hits[2].x - 100) < 1e-3 and math.abs(hits[2].nx + 1) < 1e-3 and math.abs(hits[2].fraction - 100 / 300) < 1e-3)
+    local closest = ray_world:raycast(0, 0, 300, 0, nil, 'closest')
+    check('raycast: closest', closest and closest.collider == zone)
+    local filtered = ray_world:raycast(0, 0, 300, 0, {'All', except = {'Zone', 'Wall'}}, 'closest')
+    check('raycast: class filter skips nearer colliders', filtered and filtered.collider == ball)
+    local point_hits = ray_world:queryPoint(110, 0)
+    check('queryPoint: rectangle', #point_hits == 1 and point_hits[1] == rect, #point_hits)
+    check('queryPoint: circle inside and outside', ray_world:getColliderAt(205, 5) == ball and ray_world:getColliderAt(209, 9) == nil)
+    check('queryPoint: class filter', #ray_world:queryPoint(110, 0, {'Zone'}) == 0 and ray_world:getColliderAt(55, 0, {'Zone'}) == zone)
+    ray_world:destroy()
+
+    local filter_world = wf.newWorld(0, 300, true)
+    filter_world:addCollisionClass('Wall')
+    filter_world:addCollisionClass('Solid')
+    filter_world:addCollisionClass('Ghost')
+    filter_world:newRectangleCollider(0, 100, 300, 20, {collision_class = 'Wall', body_type = 'static'})
+    local solid_ball = filter_world:newCircleCollider(60, 0, 8, {collision_class = 'Solid'})
+    local ghost_ball = filter_world:newCircleCollider(200, 0, 8, {collision_class = 'Ghost'})
+    filter_world:setColliderFilter(function(a, b)
+        return a.collision_class ~= 'Ghost' and b.collision_class ~= 'Ghost'
+    end)
+    local solid_enters, ghost_enters, ghost_exits = 0, 0, 0
+    for _ = 1, 120 do
+        filter_world:update(1 / 60)
+        if solid_ball:enter('Wall') then solid_enters = solid_enters + 1 end
+        if ghost_ball:enter('Wall') then ghost_enters = ghost_enters + 1 end
+        if ghost_ball:exit('Wall') then ghost_exits = ghost_exits + 1 end
+    end
+    local _, solid_y = solid_ball:getPosition()
+    local _, ghost_y = ghost_ball:getPosition()
+    check('collider filter: accepted contact lands with an enter event', solid_y < 100 and solid_enters >= 1, solid_y .. ' ' .. solid_enters)
+    check('collider filter: rejected contact passes through with no events', ghost_y > 130 and ghost_enters == 0 and ghost_exits == 0, ghost_y .. ' ' .. ghost_enters .. ' ' .. ghost_exits)
+    filter_world:destroy()
+
+    local rules_world = wf.newWorld(0, 300, true)
+    rules_world:addCollisionClass('Platform', {one_way = {0, -1}})
+    rules_world:addCollisionClass('Belt', {conveyor = 100})
+    rules_world:addCollisionClass('Ball')
+    rules_world:newRectangleCollider(0, 100, 150, 10, {collision_class = 'Platform', body_type = 'static'})
+    local lander = rules_world:newCircleCollider(40, 0, 8, {collision_class = 'Ball'})
+    local jumper = rules_world:newCircleCollider(110, 200, 8, {collision_class = 'Ball'})
+    jumper:setLinearVelocity(0, -400)
+    local early_crate = rules_world:newRectangleCollider(300, 60, 20, 20, {friction = 1})
+    rules_world:newRectangleCollider(200, 100, 2000, 10, {collision_class = 'Belt', body_type = 'static'})
+    local late_crate = rules_world:newRectangleCollider(500, 60, 20, 20, {friction = 1})
+    local jumper_y_at_30
+    for frame = 1, 120 do
+        rules_world:update(1 / 60)
+        if frame == 30 then jumper_y_at_30 = select(2, jumper:getPosition()) end
+    end
+    check('one way: a ball dropped from above lands on the platform', select(2, lander:getPosition()) < 100, select(2, lander:getPosition()))
+    check('one way: a ball thrown up from below passes through', jumper_y_at_30 < 90, jumper_y_at_30)
+    local early_dx = early_crate:getPosition() - 310
+    local late_dx = late_crate:getPosition() - 510
+    check('conveyor: crate created before the belt moves with the belt', early_dx > 30 and early_dx < 200, early_dx)
+    check('conveyor: crate created after the belt moves with the belt', late_dx > 30 and late_dx < 200, late_dx)
+    rules_world:destroy()
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

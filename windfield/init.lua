@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.1.0'
+wf._VERSION = '0.2.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -70,7 +70,6 @@ end
 
 function World.new(wf, xg, yg, sleep, options)
     local self = {}
-    local settings = settings or {}
     self.wf = wf
 
     self.draw_query_for_n_frames = 10
@@ -82,6 +81,11 @@ function World.new(wf, xg, yg, sleep, options)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.one_way = {}
+    self.conveyors = {}
+    self.has_contact_rules = false
+    self.collider_filter = nil
+    self.filtered_contacts = setmetatable({}, {__mode = 'k'})
     self.fixed_dt = 1/60
     self.max_steps = 5
     self.accumulator = 0
@@ -148,6 +152,11 @@ function World:step(dt)
     end
     if self.accumulator >= fixed then self.accumulator = self.accumulator % fixed end
     return steps
+end
+
+function World:setColliderFilter(fn)
+    if fn ~= nil and type(fn) ~= 'function' then error('The contact filter must be a function or nil.') end
+    self.collider_filter = fn
 end
 
 function World:getAlpha()
@@ -262,7 +271,29 @@ function World:setExplicitCollisionEvents(value)
     self.explicit_collision_events = value
 end
 
+local function classIgnores(collision_class)
+    if collision_class.sensor then return {'All'} end
+    return collision_class.ignores or {}
+end
+
 function World:addCollisionClass(collision_class_name, collision_class)
+    if collision_class and collision_class.sensor and collision_class.ignores then
+        error('Collision class ' .. collision_class_name .. ' cannot set both sensor and ignores.')
+    end
+    local one_way, conveyor
+    if collision_class and collision_class.one_way ~= nil then
+        local normal = collision_class.one_way
+        local nx, ny = type(normal) == 'table' and normal[1], type(normal) == 'table' and normal[2]
+        if type(nx) ~= 'number' or type(ny) ~= 'number' or (nx == 0 and ny == 0) then
+            error('Collision class ' .. collision_class_name .. ': one_way must be a table {nx, ny} that is not zero.')
+        end
+        local length = math.sqrt(nx * nx + ny * ny)
+        one_way = {nx = nx / length, ny = ny / length}
+    end
+    if collision_class and collision_class.conveyor ~= nil then
+        conveyor = collision_class.conveyor
+        if type(conveyor) ~= 'number' then error('Collision class ' .. collision_class_name .. ': conveyor must be a number.') end
+    end
     if self.collision_classes[collision_class_name] then error('Collision class ' .. collision_class_name .. ' already exists.') end
 
     if self.explicit_collision_events then
@@ -288,6 +319,10 @@ function World:addCollisionClass(collision_class_name, collision_class)
             end
         end
     end
+
+    self.one_way[collision_class_name] = one_way
+    self.conveyors[collision_class_name] = conveyor
+    self.has_contact_rules = next(self.one_way) ~= nil or next(self.conveyors) ~= nil
 
     self:collisionClassesSet()
 end
@@ -365,7 +400,7 @@ end
 function World:doesType1IgnoreType2(type1, type2)
     local collision_ignores = {}
     for collision_class_name, collision_class in pairs(self.collision_classes) do
-        collision_ignores[collision_class_name] = collision_class.ignores or {}
+        collision_ignores[collision_class_name] = classIgnores(collision_class)
     end
     local all = {}
     for collision_class_name, _ in pairs(collision_ignores) do
@@ -404,7 +439,7 @@ end
 function World:generateCategoriesMasks()
     local collision_ignores = {}
     for collision_class_name, collision_class in pairs(self.collision_classes) do
-        collision_ignores[collision_class_name] = collision_class.ignores or {}
+        collision_ignores[collision_class_name] = classIgnores(collision_class)
     end
     local incoming = {}
     local expanded = {}
@@ -545,33 +580,61 @@ local function addCollisionEvent(collider, other_collision_class_name, event)
     end
 end
 
+local function emitCollisionEvents(list, event_type, a, b, contact)
+    for _, collision in ipairs(list) do
+        if collIf(collision.type1, collision.type2, a, b) then
+            a, b = collEnsure(collision.type1, a, collision.type2, b)
+            addCollisionEvent(a, collision.type2, newCollisionEvent(event_type, a, b, contact))
+            if collision.type1 == collision.type2 then
+                addCollisionEvent(b, collision.type1, newCollisionEvent(event_type, b, a, contact))
+            end
+        end
+    end
+end
+
+local one_way_speed_tolerance = 1
+
+function World._oneWaySolid(platform_nx, platform_ny, contact_nx, contact_ny, relative_vx, relative_vy)
+    return contact_nx * platform_nx + contact_ny * platform_ny > 0
+        and relative_vx * platform_nx + relative_vy * platform_ny <= one_way_speed_tolerance
+end
+
+local function oneWayDisables(platform, other, contact_nx, contact_ny)
+    local normal = platform.world.one_way[platform.collision_class]
+    if not normal then return false end
+    local pvx, pvy = platform.body:getLinearVelocity()
+    local ovx, ovy = other.body:getLinearVelocity()
+    return not World._oneWaySolid(normal.nx, normal.ny, contact_nx, contact_ny, ovx - pvx, ovy - pvy)
+end
+
+local function applyContactRules(world, a, b, contact)
+    local nx, ny = contact:getNormal()
+    if oneWayDisables(a, b, nx, ny) or oneWayDisables(b, a, -nx, -ny) then contact:setEnabled(false) end
+    local speed = world.conveyors[a.collision_class] or world.conveyors[b.collision_class]
+    if speed then contact:setTangentSpeed(-speed / love.physics.getMeter()) end
+end
+
+local function contactRejected(a, b, contact)
+    local filter = a.world.collider_filter
+    if not filter or filter(a, b) ~= false then return false end
+    contact:setEnabled(false)
+    return true
+end
+
 function World.collisionOnEnter(fixture_a, fixture_b, contact)
     local a, b = fixture_a:getUserData(), fixture_b:getUserData()
 
     if fixture_a:isSensor() and fixture_b:isSensor() then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_enter.sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
-                    end
-                end
-            end
+            local lists = a.world.collisions.on_enter
+            emitCollisionEvents(lists.sensor, 'enter', a, b, contact)
+            if a.sensor_mode or b.sensor_mode then emitCollisionEvents(lists.non_sensor, 'enter', a, b, contact) end
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_enter.non_sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
-                    end
-                end
-            end
+            if contactRejected(a, b, contact) then a.world.filtered_contacts[contact] = true
+            else emitCollisionEvents(a.world.collisions.on_enter.non_sensor, 'enter', a, b, contact) end
         end
     end
 end
@@ -581,28 +644,16 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
 
     if fixture_a:isSensor() and fixture_b:isSensor() then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_exit.sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
-                    end
-                end
-            end
+            local lists = a.world.collisions.on_exit
+            emitCollisionEvents(lists.sensor, 'exit', a, b, contact)
+            if a.sensor_mode or b.sensor_mode then emitCollisionEvents(lists.non_sensor, 'exit', a, b, contact) end
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_exit.non_sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
-                    end
-                end
-            end
+            local filtered = a.world.filtered_contacts
+            if filtered[contact] then filtered[contact] = nil
+            else emitCollisionEvents(a.world.collisions.on_exit.non_sensor, 'exit', a, b, contact) end
         end
     end
 end
@@ -624,7 +675,8 @@ function World.collisionPre(fixture_a, fixture_b, contact)
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then
+        if a and b and not contactRejected(a, b, contact) then
+            if a.world.has_contact_rules then applyContactRules(a.world, a, b, contact) end
             for _, collision in ipairs(a.world.collisions.pre.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)
@@ -870,6 +922,55 @@ function World:queryLine(x1, y1, x2, y2, collision_class_names)
     return outs
 end
 
+function World:queryPoint(x, y, collision_class_names)
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local found, outs = {}, {}
+    self.box2d_world:queryBoundingBox(x, y, x, y, function(fixture)
+        local collider = fixture:getUserData()
+        if collider and not found[collider] and not collider.destroy_pending and not fixture:isSensor()
+            and (not allowed or allowed[collider.collision_class]) and fixture:testPoint(x, y) then
+            found[collider] = true
+            outs[#outs + 1] = collider
+        end
+        return true
+    end)
+    return outs
+end
+
+function World:getColliderAt(x, y, collision_class_names)
+    return self:queryPoint(x, y, collision_class_names)[1]
+end
+
+function World:raycast(x1, y1, x2, y2, collision_class_names, mode)
+    mode = mode or 'all'
+    if mode ~= 'all' and mode ~= 'closest' then error("Unknown raycast mode " .. tostring(mode) .. ".") end
+    if self.query_debug_drawing_enabled then
+        table.insert(self.query_debug_draw, {type = 'line', x1 = x1, y1 = y1, x2 = x2, y2 = y2, frames = self.draw_query_for_n_frames})
+    end
+
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local closest = mode == 'closest'
+    local hits = {}
+    self.box2d_world:rayCast(x1, y1, x2, y2, function(fixture, x, y, nx, ny, fraction)
+        local collider = fixture:getUserData()
+        if not collider or collider.destroy_pending or fixture:isSensor()
+            or (allowed and not allowed[collider.collision_class]) then
+            return -1
+        end
+        local hit = {collider = collider, x = x, y = y, nx = nx, ny = ny, fraction = fraction}
+        if closest then
+            hits[1] = hit
+            return fraction
+        end
+        hits[#hits + 1] = hit
+        return 1
+    end)
+
+    if closest then return hits[1] end
+    table.sort(hits, function(a, b) return a.fraction < b.fraction end)
+    return hits
+end
+
 function World:addJoint(joint_type, ...)
     local args = {...}
     if args[1].body then args[1] = args[1].body end
@@ -919,7 +1020,7 @@ local fixture_settings = {restitution = 'setRestitution', friction = 'setFrictio
 local function checkSettings(settings)
     if not settings then return end
     for key in pairs(settings) do
-        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object'
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor'
             and not body_settings[key] and not fixture_settings[key] then
             error('Unknown collider setting ' .. tostring(key) .. '.', 3)
         end
@@ -935,6 +1036,18 @@ local function applySettings(body, fixture, settings)
         if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
     end
     if settings.density ~= nil then body:resetMassData() end
+end
+
+local all_categories = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+local function applyMask(collider, fixture)
+    local mask = collider.world.masks[collider.collision_class]
+    if mask then
+        fixture:setCategory(unpack(mask.categories))
+        fixture:setMask(unpack(collider.sensor_mode and all_categories or mask.masks))
+    elseif collider.sensor_mode then
+        fixture:setMask(unpack(all_categories))
+    end
 end
 
 function Collider.new(world, collider_type, ...)
@@ -994,10 +1107,8 @@ function Collider.new(world, collider_type, ...)
 
     -- Define collision classes and attach them to fixture and sensor
     fixture = love.physics.newFixture(self.body, shape)
-    if self.world.masks[self.collision_class] then
-        fixture:setCategory(unpack(self.world.masks[self.collision_class].categories))
-        fixture:setMask(unpack(self.world.masks[self.collision_class].masks))
-    end
+    self.sensor_mode = (settings and settings.sensor) or nil
+    applyMask(self, fixture)
     fixture:setUserData(self)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
@@ -1035,12 +1146,16 @@ end
 function Collider:setCollisionClass(collision_class_name)
     if not self.world.collision_classes[collision_class_name] then error("Collision class " .. collision_class_name .. " doesn't exist.") end
     self.collision_class = collision_class_name
-    for _, fixture in pairs(self.fixtures) do
-        if self.world.masks[collision_class_name] then
-            fixture:setCategory(unpack(self.world.masks[collision_class_name].categories))
-            fixture:setMask(unpack(self.world.masks[collision_class_name].masks))
-        end
-    end
+    for _, fixture in pairs(self.fixtures) do applyMask(self, fixture) end
+end
+
+function Collider:setSensor(sensor)
+    self.sensor_mode = sensor and true or nil
+    for _, fixture in pairs(self.fixtures) do applyMask(self, fixture) end
+end
+
+function Collider:isSensor()
+    return self.sensor_mode == true or self.world.collision_classes[self.collision_class].sensor == true
 end
 
 function Collider:enter(other_collision_class_name)
@@ -1134,10 +1249,7 @@ function Collider:addShape(shape_name, shape_type, ...)
     local args = {...}
     local shape = love.physics['new' .. shape_type](unpack(args))
     local fixture = love.physics.newFixture(self.body, shape)
-    if self.world.masks[self.collision_class] then
-        fixture:setCategory(unpack(self.world.masks[self.collision_class].categories))
-        fixture:setMask(unpack(self.world.masks[self.collision_class].masks))
-    end
+    applyMask(self, fixture)
     fixture:setUserData(self)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
@@ -1159,7 +1271,6 @@ function Collider:removeShape(shape_name)
     self.sensors[shape_name] = nil
 end
 
--- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
 function Collider:_snapshot()
     self.prev_x, self.prev_y = self.body:getPosition()
     self.prev_angle = self.body:getAngle()
@@ -1191,6 +1302,7 @@ function Collider:getRenderAngle()
     return self.prev_angle + (angle - self.prev_angle) * self.world:getAlpha()
 end
 
+-- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
 function Collider:destroy()
     if not self.body or self.destroy_pending then return end
     local world = self.world

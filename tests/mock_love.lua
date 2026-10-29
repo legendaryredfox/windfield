@@ -61,8 +61,17 @@ local function install()
             end
         end,
         rayCast = function(self, _, _, _, _, callback)
+            local max_fraction = 1
             for _, body in ipairs(self.bodies) do
-                for _, fixture in ipairs(body.fixtures) do callback(fixture, 0, 0, 0, 0, 0) end
+                for _, fixture in ipairs(body.fixtures) do
+                    local hit = fixture.ray or {}
+                    local fraction = hit.fraction or 0
+                    if fraction <= max_fraction then
+                        local result = callback(fixture, hit.x or 0, hit.y or 0, hit.xn or 0, hit.yn or 0, fraction)
+                        if result == 0 then return end
+                        if result >= 0 and result < max_fraction then max_fraction = result end
+                    end
+                end
             end
         end,
         destroy = function(self) self.destroyed = true end,
@@ -101,6 +110,14 @@ local function install()
         isSensor = function(self) return self.sensor == true end,
         getShape = function(self) return self.shape end,
         getBody = function(self) return self.body end,
+        testPoint = function(self, x, y)
+            local shape, body = self.shape, self.body
+            if shape.radius then
+                return (x - body.x) ^ 2 + (y - body.y) ^ 2 <= shape.radius ^ 2
+            end
+            local x1, y1, x2, y2 = self:getBoundingBox()
+            return x >= x1 and x <= x2 and y >= y1 and y <= y2
+        end,
         getBoundingBox = function(self)
             local shape, body = self.shape, self.body
             if shape.radius then
@@ -213,6 +230,10 @@ local function install()
             if self.destroyed then error('Attempt to use destroyed contact.', 2) end
             return unpack(self.positions)
         end,
+        setEnabled = function(self, enabled) self.enabled = enabled end,
+        isEnabled = function(self) return self.enabled ~= false end,
+        setTangentSpeed = function(self, speed) self.tangent_speed = speed end,
+        getTangentSpeed = function(self) return self.tangent_speed or 0 end,
     })
 
     -- Calls the callback registered with World:setCallbacks and returns the

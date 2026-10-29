@@ -12,6 +12,7 @@
 * [Examples & Tips](#examples--tips)
    * [Checking collisions between game objects](#checking-collisions-between-game-objects)
    * [One-way Platforms](#one-way-platforms)
+* [Editor support](#editor-support)
 * [Documentation](#documentation)
    * [World](#world)
       * [newWorld](#newworldxg-yg-sleep-options)
@@ -33,12 +34,16 @@
       * [queryRectangleArea](#queryrectangleareax-y-w-h-collision_class_names)
       * [queryPolygonArea](#querypolygonareavertices-collision_class_names)
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
+      * [raycast](#raycastx1-y1-x2-y2-collision_class_names-mode)
+      * [queryPoint](#querypointx-y-collision_class_names)
+      * [getColliderAt](#getcollideratx-y-collision_class_names)
       * [addJoint](#addjointjoint_type-)
       * [removeJoint](#removejointjoint)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
       * [onEnter](#onenterclass_a-class_b-callback)
       * [onExit](#onexitclass_a-class_b-callback)
+      * [setColliderFilter](#setcolliderfilterfn)
    * [Collider](#collider)
       * [destroy](#destroy-1)
       * [setCollisionClass](#setcollisionclasscollision_class_name)
@@ -50,6 +55,8 @@
       * [getExits](#getexitsother_collision_class_name)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
+      * [setSensor](#setsensorsensor)
+      * [isSensor](#issensor)
       * [setInterpolated](#setinterpolatedinterpolated)
       * [isInterpolated](#isinterpolated)
       * [getRenderPosition](#getrenderposition)
@@ -293,7 +300,7 @@ end
 
 ## One-way Platforms
 
-A common problem people have with using 2D physics engines seems to be getting one-way platforms to work. Here's one way to achieve this with this library:
+A common problem people have with using 2D physics engines seems to be getting one-way platforms to work. The `one_way` option of `addCollisionClass` does it for you: `world:addCollisionClass('Platform', {one_way = {0, -1}})`. This is how to do it by hand with a `preSolve` callback, which is also a good example of what `setPreSolve` can do:
 
 ```lua
 function love.load()
@@ -334,6 +341,22 @@ And that looks like this:
 </p>
 
 The way this works is that by disabling the contact before collision response is applied (so in the preSolve callback) we can make a collider ignore another. And then all we do is check to see if the player is below platform, and if he is then we disable the contact.
+
+<br>
+
+# Editor support
+
+The `types/windfield.lua` file in this repository holds [LuaLS](https://luals.github.io/) type definitions for the whole API: autocomplete, argument checks and hover documentation for `World`, `Collider`, `settings` tables and collision data. A collider also gets the LÖVE `Body`, `Fixture` and `Shape` methods it forwards.
+
+Copy the `types` folder next to your `windfield` folder and add it, together with the LÖVE definitions, to your `.luarc.json`:
+
+```json
+{
+    "runtime.version": "Lua 5.5",
+    "workspace.library": ["${3rd}/love2d/library", "types"],
+    "diagnostics.globals": ["love"]
+}
+```
 
 <br>
 
@@ -469,6 +492,9 @@ Arguments:
 
 Settings:
 
+* `[sensor]` `(boolean)` - Makes colliders of this class sensors: they physically ignore every collision class and still generate enter, stay and exit events. Same as `ignores = {'All'}`, and it cannot be combined with `ignores`. See `Collider:setSensor` for the static body limitation
+* `[one_way]` `({nx, ny})` - Makes colliders of this class one-way platforms: they are solid only for colliders on the side the vector points to, like `{0, -1}` for the top of a platform (y grows downwards). Colliders coming from the other side, or moving away through the platform, pass through. The vector does not have to be unit length. The `enter` and `exit` events still happen while the colliders overlap. A `pre` handler runs after the check and can call `contact:setEnabled(true)` to override it
+* `[conveyor]` `(number)` - Makes colliders of this class conveyor belts. Whatever rests on them is carried at this speed in pixels per second, in the direction of the belt's surface seen from the carried collider: with the belt below, positive values move to the right. Friction on both colliders (the default is 0.2) sets how fast the carried collider reaches that speed
 * `[ignores]` `(table[string])` - The collision classes that will be physically ignored
 * `[enter]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they enter contact with each other
 * `[exit]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they exit contact with each other
@@ -499,6 +525,7 @@ box = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Player', 
 * `friction` `(number)` - `setFriction` on the solid fixture
 * `density` `(number)` - `setDensity` on the solid fixture; the body mass is recomputed
 * `object` `(any)` - Stored on the collider, same as `setObject`
+* `sensor` `(boolean)` - Starts the collider as a sensor, same as `setSensor(true)`
 
 Keys that are not listed raise an error, so a typo such as `restitutoin` is caught when the collider is created.
 
@@ -715,6 +742,77 @@ Returns:
 
 ---
 
+#### `:raycast(x1, y1, x2, y2, collision_class_names, mode)`
+
+Casts a ray from the first point to the second one and returns where it hits colliders, with the hit point and surface normal. `queryLine` only tells which colliders the line touches, in no particular order.
+
+```lua
+local hits = world:raycast(100, 100, 400, 100)
+for _, hit in ipairs(hits) do
+    print(hit.collider.collision_class, hit.x, hit.y, hit.nx, hit.ny, hit.fraction)
+end
+
+local wall = world:raycast(player_x, player_y, enemy_x, enemy_y, {'All', except = {'Zone'}}, 'closest')
+if wall then print('line of sight blocked by', wall.collider) end
+```
+
+Arguments:
+
+* `x1` `(number)` - The x position of the start of the ray
+* `y1` `(number)` - The y position of the start of the ray
+* `x2` `(number)` - The x position of the end of the ray
+* `y2` `(number)` - The y position of the end of the ray
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`. Sensor colliders (`setSensor` or a `sensor` collision class) are hit like any other collider, so leave their classes out to let the ray pass through them
+* `[mode='all']` `(string)` - `'all'` returns every hit sorted from the nearest to the farthest, `'closest'` returns only the nearest one
+
+Returns:
+
+* `all` mode: `table[table]` - The hits, each with `collider`, `x`, `y` (hit point), `nx`, `ny` (surface normal at the hit point) and `fraction` (0 at the start of the ray, 1 at its end). Empty when nothing is hit
+* `closest` mode: `table` - The nearest hit, with the same fields, or `nil` when nothing is hit
+
+---
+
+#### `:queryPoint(x, y, collision_class_names)`
+
+Returns the colliders that contain a point. The test is exact (LÖVE `Fixture:testPoint`), so a point on the edge of a shape counts as inside, and it works for every collider type including circles. Unlike the area queries it has no special rule for areas fully inside a polygon: the point has no size.
+
+```lua
+local colliders = world:queryPoint(love.mouse.getPosition())
+local pickable = world:queryPoint(mx, my, {'All', except = {'Wall'}})
+```
+
+Arguments:
+
+* `x` `(number)` - The x position of the point
+* `y` `(number)` - The y position of the point
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `table[Collider]` - The colliders containing the point, in no particular order. Sensor colliders are included like in the other queries
+
+---
+
+#### `:getColliderAt(x, y, collision_class_names)`
+
+Returns one collider that contains a point, or `nil`. When several colliders overlap at the point, which one is returned is unspecified; use `queryPoint` to get all of them.
+
+```lua
+local collider = world:getColliderAt(mouse_x, mouse_y)
+```
+
+Arguments:
+
+* `x` `(number)` - The x position of the point
+* `y` `(number)` - The y position of the point
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `Collider` `(table)` - A collider containing the point, or `nil`
+
+---
+
 #### `:addJoint(joint_type, ...)`
 
 Adds a joint to the world.
@@ -819,6 +917,25 @@ Arguments:
 Returns:
 
 * `handle` `(table)` - A table with a `remove()` function that unregisters the callback
+
+---
+
+#### `:setColliderFilter(fn)`
+
+Sets a function that decides, for every pair of solid colliders that touch, whether the contact is kept. Return `false` to reject it: the colliders pass through each other, no `enter`, `exit`, `pre` or `post` events are generated for that contact and the colliders' pre solve callbacks do not run. Any other return value, including `nil`, keeps the contact. Use it for rules that depend on the game state, like a ghost mode or a one-way platform.
+
+```lua
+world:setColliderFilter(function(a, b)
+    if a.object and a.object.ghost then return false end
+    if b.object and b.object.ghost then return false end
+end)
+```
+
+The function runs when two colliders begin touching and again every step they keep touching, so keep it cheap. The order of the two colliders is unspecified. Sensor pairs (see `Collider:setSensor`) never reach the filter. Do not confuse it with the LÖVE `World:setContactFilter`, which still works and filters fixtures.
+
+Arguments:
+
+* `fn` `(function)` - Called as `fn(collider_a, collider_b)`. Pass `nil` to remove the filter
 
 ---
 
@@ -1024,6 +1141,33 @@ Arguments:
 Returns:
 
 * `collision_data_list` `(table[table])` - The data of every collider this collider is currently touching, one table per collider with the fields described in `getEnterCollisionData`. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned. Contacts are tracked from the enter and exit events, so `enter` does not have to be called for `stay` to work.
+
+---
+
+#### `:setSensor(sensor)`
+
+Makes the collider a sensor or a solid body again. A sensor passes through every other collider and still generates `enter`, `exit` and `stay` events for the collision classes it was set up with. This replaces the LÖVE `Fixture:setSensor` that used to be reachable through the collider: that call turned only the solid fixture into a sensor, which silently dropped every event of the collider.
+
+```lua
+pickup:setSensor(true)
+if player:enter('Pickup') then ... end
+```
+
+Box2D only creates a contact when at least one of the two bodies is dynamic. A sensor on a static or kinematic body therefore reports nothing for another static or kinematic body, for example a static zone and a kinematic mover. Use a dynamic body for one of them.
+
+Arguments:
+
+* `sensor` `(boolean)` - Whether the collider is a sensor
+
+---
+
+#### `:isSensor()`
+
+Returns whether the collider is a sensor, either through `setSensor`, the `sensor` setting or a sensor collision class.
+
+Returns:
+
+* `sensor` `(boolean)` - The sensor state
 
 ---
 
