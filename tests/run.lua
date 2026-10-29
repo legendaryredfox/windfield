@@ -681,6 +681,83 @@ test('timers count down for coyote time and jump buffering', function()
     raises(function() wf.newTimer(0) end, 'zero duration')
 end)
 
+local function shapeArea(points)
+    local area, count = 0, #points / 2
+    for i = 1, count do
+        local j = i % count + 1
+        area = area + points[2 * i - 1] * points[2 * j] - points[2 * j - 1] * points[2 * i]
+    end
+    return math.abs(area) / 2
+end
+
+local function piecesOf(collider)
+    local pieces = {}
+    for _, shape in pairs(collider.shapes) do pieces[#pieces + 1] = shape.points end
+    return pieces
+end
+
+local function totalArea(collider)
+    local sum = 0
+    for _, points in ipairs(piecesOf(collider)) do sum = sum + shapeArea(points) end
+    return sum
+end
+
+test('concave polygon colliders are split into convex pieces', function()
+    local world = newWorld()
+    local l_shape = world:newConcavePolygonCollider({0, 0, 20, 0, 20, 10, 10, 10, 10, 20, 0, 20})
+    truthy(#piecesOf(l_shape) <= 2, 'an L shape needs at most two convex pieces, got ' .. #piecesOf(l_shape))
+    near(totalArea(l_shape), 300, 1e-6, 'the pieces cover the L exactly')
+    truthy(l_shape.shapes.main and l_shape.fixtures.main and l_shape.sensors.main, 'main piece')
+    eq(l_shape.type, 'Polygon', 'collider type')
+
+    local star = world:newConcavePolygonCollider({0, -20, 5, -5, 20, -5, 8, 3, 12, 18, 0, 8, -12, 18, -8, 3, -20, -5, -5, -5})
+    near(totalArea(star), 479, 1e-6, 'star area')
+    for _, points in ipairs(piecesOf(star)) do truthy(#points / 2 <= 8, 'at most 8 vertices per piece') end
+    truthy(#piecesOf(star) >= 2, 'a star is split')
+
+    local square = world:newConcavePolygonCollider({0, 0, 10, 0, 10, 10, 0, 10})
+    eq(#piecesOf(square), 1, 'a convex polygon stays in one piece')
+    local clockwise = world:newConcavePolygonCollider({0, 0, 0, 20, 10, 20, 10, 10, 20, 10, 20, 0})
+    near(totalArea(clockwise), 300, 1e-6, 'clockwise winding')
+    local closed = world:newConcavePolygonCollider({0, 0, 10, 0, 10, 10, 0, 10, 0, 0})
+    near(totalArea(closed), 100, 1e-6, 'a repeated closing vertex is ignored')
+end)
+
+test('concave polygon colliders work around the 8 vertex limit and keep their settings', function()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    local circle = {}
+    for i = 0, 11 do
+        circle[#circle + 1] = 50 * math.cos(i * math.pi / 6)
+        circle[#circle + 1] = 50 * math.sin(i * math.pi / 6)
+    end
+    local twelve = world:newConcavePolygonCollider(circle, {collision_class = 'Wall', body_type = 'static'})
+    truthy(#piecesOf(twelve) >= 2, 'twelve vertices need at least two pieces')
+    for _, points in ipairs(piecesOf(twelve)) do truthy(#points / 2 <= 8, 'at most 8 vertices per piece') end
+    eq(twelve.collision_class, 'Wall', 'collision class')
+    eq(twelve.body.body_type, 'static', 'body type')
+    for name, fixture in pairs(twelve.fixtures) do
+        truthy(fixture.category, 'category of ' .. name)
+    end
+    local fixtures = 0
+    for _ in pairs(twelve.fixtures) do fixtures = fixtures + 1 end
+    twelve:destroy()
+    eq(twelve.body, nil, 'destroyed')
+    eq(next(twelve.fixtures), nil, 'every piece released')
+end)
+
+test('concave polygon colliders reject bad input without leaving a body behind', function()
+    local world = newWorld()
+    local bodies = #world:getBodies()
+    raises(function() world:newConcavePolygonCollider({0, 0, 20, 20, 20, 0, 0, 20}) end, 'bowtie')
+    raises(function() world:newConcavePolygonCollider({0, 0, 10, 0}) end, 'two points')
+    raises(function() world:newConcavePolygonCollider({0, 0, 10, 0, 5}) end, 'odd count')
+    raises(function() world:newConcavePolygonCollider({0, 0, 10, 0, 20, 0}) end, 'collinear points')
+    raises(function() world:newConcavePolygonCollider('x') end, 'not a table')
+    raises(function() world:newConcavePolygonCollider({0, 0, 10, 0, 5, 8}, {restitutoin = 1}) end, 'unknown settings key')
+    eq(#world:getBodies(), bodies, 'no bodies left behind')
+end)
+
 test('queryShape validates the shape definition and releases its fixtures', function()
     local world = newWorld()
     raises(function() world:queryShape({type = 'triangle'}, 0, 0) end, 'unknown type')

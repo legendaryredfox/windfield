@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.5.0'
+wf._VERSION = '0.6.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -860,6 +860,127 @@ end
 
 function World:newPolygonCollider(vertices, settings)
     return self.wf.Collider.new(self, 'Polygon', vertices, settings)
+end
+
+local function cross(ax, ay, bx, by, cx, cy)
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+end
+
+local function segmentsTouch(a, b, c, d)
+    local d1, d2 = cross(c[1], c[2], d[1], d[2], a[1], a[2]), cross(c[1], c[2], d[1], d[2], b[1], b[2])
+    local d3, d4 = cross(a[1], a[2], b[1], b[2], c[1], c[2]), cross(a[1], a[2], b[1], b[2], d[1], d[2])
+    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)) then return true end
+    local function onSegment(p, q, r)
+        return math.min(p[1], q[1]) <= r[1] and r[1] <= math.max(p[1], q[1])
+            and math.min(p[2], q[2]) <= r[2] and r[2] <= math.max(p[2], q[2])
+    end
+    return (d1 == 0 and onSegment(c, d, a)) or (d2 == 0 and onSegment(c, d, b))
+        or (d3 == 0 and onSegment(a, b, c)) or (d4 == 0 and onSegment(a, b, d))
+end
+
+local function polygonPoints(vertices)
+    if type(vertices) ~= 'table' or #vertices % 2 ~= 0 then error('A polygon needs a table with an even number of coordinates.', 3) end
+    local points = {}
+    for i = 1, #vertices, 2 do points[#points + 1] = {vertices[i], vertices[i + 1]} end
+    local first, last = points[1], points[#points]
+    if #points > 1 and first[1] == last[1] and first[2] == last[2] then points[#points] = nil end
+    if #points < 3 then error('A polygon needs at least 3 different vertices.', 3) end
+    for i = 1, #points do
+        for j = i + 1, #points do
+            local adjacent = j == i + 1 or (i == 1 and j == #points)
+            if not adjacent and segmentsTouch(points[i], points[i % #points + 1], points[j], points[j % #points + 1]) then
+                error('The polygon crosses or touches itself.', 3)
+            end
+        end
+    end
+    return points
+end
+
+local max_polygon_vertices = 8
+
+-- Hertel-Mehlhorn: triangulate, then drop diagonals while the union of two pieces stays convex.
+local function convexPieces(points)
+    local flat = {}
+    for _, p in ipairs(points) do flat[#flat + 1] = p[1] flat[#flat + 1] = p[2] end
+    local index, coordinates = {}, {}
+    local function vertexIndex(x, y)
+        local key = x .. ',' .. y
+        if not index[key] then
+            coordinates[#coordinates + 1] = {x, y}
+            index[key] = #coordinates
+        end
+        return index[key]
+    end
+    local pieces = {}
+    for _, t in ipairs(love.math.triangulate(flat)) do
+        local a, b, c = vertexIndex(t[1], t[2]), vertexIndex(t[3], t[4]), vertexIndex(t[5], t[6])
+        local z = cross(t[1], t[2], t[3], t[4], t[5], t[6])
+        if z > 1e-9 then pieces[#pieces + 1] = {a, b, c}
+        elseif z < -1e-9 then pieces[#pieces + 1] = {a, c, b} end
+    end
+    if #pieces == 0 then error('The polygon has no area.', 3) end
+
+    local function isConvex(piece)
+        for i = 1, #piece do
+            local p, q, r = coordinates[piece[i]], coordinates[piece[i % #piece + 1]], coordinates[piece[(i + 1) % #piece + 1]]
+            if cross(p[1], p[2], q[1], q[2], r[1], r[2]) < -1e-9 then return false end
+        end
+        return true
+    end
+    local function merged(first, second)
+        for i = 1, #first do
+            local u, v = first[i], first[i % #first + 1]
+            for j = 1, #second do
+                if second[j] == v and second[j % #second + 1] == u then
+                    if #first + #second - 2 > max_polygon_vertices then return nil end
+                    local out = {}
+                    for k = 1, #first do out[k] = first[(i + k - 1) % #first + 1] end
+                    for k = 2, #second - 1 do out[#out + 1] = second[(j + k - 1) % #second + 1] end
+                    if isConvex(out) then return out end
+                    return nil
+                end
+            end
+        end
+        return nil
+    end
+
+    local changed = true
+    while changed do
+        changed = false
+        for a = 1, #pieces do
+            for b = a + 1, #pieces do
+                local union = merged(pieces[a], pieces[b])
+                if union then
+                    pieces[a] = union
+                    table.remove(pieces, b)
+                    changed = true
+                    break
+                end
+            end
+            if changed then break end
+        end
+    end
+
+    local out = {}
+    for _, piece in ipairs(pieces) do
+        local vertices = {}
+        for _, i in ipairs(piece) do vertices[#vertices + 1] = coordinates[i][1] vertices[#vertices + 1] = coordinates[i][2] end
+        out[#out + 1] = vertices
+    end
+    return out
+end
+
+function World:newConcavePolygonCollider(vertices, settings)
+    local pieces = convexPieces(polygonPoints(vertices))
+    local collider = self.wf.Collider.new(self, 'Polygon', pieces[1], settings)
+    for i = 2, #pieces do
+        local ok, err = pcall(collider.addShape, collider, 'part' .. i, 'PolygonShape', unpack(pieces[i]))
+        if not ok then
+            collider:destroy()
+            error(err, 2)
+        end
+    end
+    return collider
 end
 
 function World:newLineCollider(x1, y1, x2, y2, settings)
