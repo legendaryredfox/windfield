@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
+
+Tiled maps through Simple-Tiled-Implementation. Purely additive.
 
 ### Added
 
