@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- LÖVE 12 support. A small backend table adapts the Fixture and Shape merge, so windfield runs on LÖVE 12.0 without deprecated calls (checked with the full smoke script on a 12.0 development build) and keeps working on LÖVE 11.5. The `frequency` and `damping_ratio` joint options are converted to stiffness and damping on LÖVE 12.
+
+### Changed
+
+- Colliders attach their shapes inside a protected call and release the body when it fails, on both LÖVE versions.
+
 ## 0.12.0
 
 Motion quality and origin shifting. Purely additive.

@@ -24,6 +24,64 @@ SOFTWARE.
 
 local unpack = table.unpack or unpack
 local meter_initialized = false
+
+-- LÖVE 12 merged Fixture into Shape: a shape is created already attached to a body and the old
+-- calls only survive as deprecated aliases. The backend holds the few calls that differ.
+local backend
+if (love._version_major or 11) >= 12 then
+    backend = {
+        prepare = function(kind, args) return {kind = kind, args = args} end,
+        attach = function(body, part)
+            local shape = love.physics['new' .. part.kind .. 'Shape'](body, unpack(part.args))
+            return shape, shape
+        end,
+        chainEdge = function(body, chain, child)
+            local points = {chain:getPoints()}
+            local count = #points / 2
+            local last = child % count + 1
+            return love.physics.newEdgeShape(body, points[2 * child - 1], points[2 * child], points[2 * last - 1], points[2 * last])
+        end,
+        setSpring = function(joint, frequency, damping_ratio)
+            local a, b = joint:getBodies()
+            local convert = joint:type() == 'WeldJoint' and love.physics.computeAngularStiffness or love.physics.computeLinearStiffness
+            local stiffness, damping = convert(frequency or 0, damping_ratio or 0, a, b)
+            if joint:type() == 'WheelJoint' then
+                joint:setSpringStiffness(stiffness)
+                joint:setSpringDamping(damping)
+            else
+                joint:setStiffness(stiffness)
+                joint:setDamping(damping)
+            end
+        end,
+        shapeOf = function(part) return part end,
+        parts = function(body) return body:getShapes() end,
+        contactParts = function(contact) return contact:getShapes() end,
+        queryArea = function(world, x1, y1, x2, y2, callback) world:queryShapesInArea(x1, y1, x2, y2, callback) end,
+    }
+else
+    backend = {
+        prepare = function(kind, args)
+            return {shape = love.physics['new' .. kind .. 'Shape'](unpack(args))}
+        end,
+        attach = function(body, part)
+            return part.shape, love.physics.newFixture(body, part.shape)
+        end,
+        chainEdge = function(body, chain, child) return love.physics.newFixture(body, chain:getChildEdge(child)) end,
+        setSpring = function(joint, frequency, damping_ratio)
+            local wheel = joint:type() == 'WheelJoint'
+            if frequency then
+                if wheel then joint:setSpringFrequency(frequency) else joint:setFrequency(frequency) end
+            end
+            if damping_ratio then
+                if wheel then joint:setSpringDampingRatio(damping_ratio) else joint:setDampingRatio(damping_ratio) end
+            end
+        end,
+        shapeOf = function(part) return part:getShape() end,
+        parts = function(body) return body:getFixtures() end,
+        contactParts = function(contact) return contact:getFixtures() end,
+        queryArea = function(world, x1, y1, x2, y2, callback) world:queryBoundingBox(x1, y1, x2, y2, callback) end,
+    }
+end
 local path = ... .. '.' 
 local wf = {} 
 wf._VERSION = '0.12.0'
@@ -443,7 +501,7 @@ function World:_applyEffectors()
             local region = effector.region
             local allowed = self:_collisionClassFilter(effector.classes)
             local x1, y1, x2, y2 = regionBounds(region)
-            self.box2d_world:queryBoundingBox(x1, y1, x2, y2, self.effector_callback)
+            backend.queryArea(self.box2d_world, x1, y1, x2, y2, self.effector_callback)
             local done = {}
             for i = 1, #candidates do
                 local collider = candidates[i]
@@ -560,7 +618,7 @@ function pool_methods:clear()
 end
 
 local function colliderOfBody(body)
-    local first = body:getFixtures()[1]
+    local first = backend.parts(body)[1]
     local collider = first and first:getUserData()
     if collider and not collider.destroy_pending then return collider end
 end
@@ -726,7 +784,7 @@ end
 local draw_options = {alpha = true, class_colors = true, line_width = true, contacts = true, aabb = true, velocities = true, sleeping = true}
 
 local function drawFixture(body, fixture)
-    local shape = fixture:getShape()
+    local shape = backend.shapeOf(fixture)
     local shape_type = shape:type()
     if shape_type == 'PolygonShape' then
         love.graphics.polygon('line', body:getWorldPoints(shape:getPoints()))
@@ -759,7 +817,7 @@ end
 
 local function drawBody(body, options, alpha)
     if not body:isActive() then return end
-    local fixtures = body:getFixtures()
+    local fixtures = backend.parts(body)
     local first = fixtures[1]
     local first_collider = first and first:getUserData()
     if first_collider and first_collider.draw then
@@ -798,7 +856,7 @@ function World:draw(options)
     if self.has_draw_order then
         local entries = {}
         for index, body in ipairs(bodies) do
-            local first = body:getFixtures()[1]
+            local first = backend.parts(body)[1]
             local collider = first and first:getUserData()
             entries[index] = {body = body, order = collider and collider.draw_order or 0, index = index}
         end
@@ -815,9 +873,9 @@ function World:draw(options)
     if options.aabb then
         love.graphics.setColor(128/255, 128/255, 128/255, alpha)
         for _, body in ipairs(bodies) do
-            for _, fixture in ipairs(body:getFixtures()) do
+            for _, fixture in ipairs(backend.parts(body)) do
                 if not (fixture:getUserData() and fixture:isSensor()) then
-                    for child = 1, fixture:getShape():getChildCount() do
+                    for child = 1, backend.shapeOf(fixture):getChildCount() do
                         local x1, y1, x2, y2 = fixture:getBoundingBox(child)
                         love.graphics.rectangle('line', x1, y1, x2 - x1, y2 - y1)
                     end
@@ -942,7 +1000,7 @@ function World:collisionClassesSet()
     self.is_sensor_memo = {}
 
     for _, body in ipairs(self.box2d_world:getBodies()) do
-        local fixture = body:getFixtures()[1]
+        local fixture = backend.parts(body)[1]
         local collider = fixture and fixture:getUserData()
         if collider then collider:setCollisionClass(collider.collision_class) end
     end
@@ -1478,7 +1536,7 @@ end
 
 -- Internal AABB box2d query used before going for more specific and precise computations.
 function World:_queryBoundingBox(x1, y1, x2, y2)
-    self.box2d_world:queryBoundingBox(x1, y1, x2, y2, self.query_callback)
+    backend.queryArea(self.box2d_world, x1, y1, x2, y2, self.query_callback)
     return self.query_results
 end
 
@@ -1530,7 +1588,7 @@ end
 
 -- CircleShape has no getPoints, so circles are tested by center and radius.
 local function fixtureCircle(body, fixture)
-    local shape = fixture:getShape()
+    local shape = backend.shapeOf(fixture)
     if shape:type() ~= 'CircleShape' then return end
     local x, y = body:getWorldPoint(shape:getPoint())
     return x, y, shape:getRadius()
@@ -1552,7 +1610,7 @@ function World:queryCircleArea(x, y, radius, collision_class_names)
                 if cx then
                     hit = (x - cx)^2 + (y - cy)^2 <= (radius + cr)^2
                 else
-                    hit = polygon.getCircleIntersection(x, y, radius, {collider.body:getWorldPoints(fixture:getShape():getPoints())})
+                    hit = polygon.getCircleIntersection(x, y, radius, {collider.body:getWorldPoints(backend.shapeOf(fixture):getPoints())})
                 end
                 if hit then
                     outs[#outs + 1] = collider
@@ -1567,7 +1625,7 @@ end
 
 -- rect is {x1, y1, x2, y2} for axis aligned queries: a shape whose bounding box lies strictly inside it is a hit, and one whose bounding box is strictly apart from it is a miss, without the exact test.
 function World:_polygonQueryHit(vertices, body, fixture, rect)
-    local shape = fixture:getShape()
+    local shape = backend.shapeOf(fixture)
     local shape_type = shape:type()
     if rect and shape_type ~= 'ChainShape' then
         local x1, y1, x2, y2 = fixture:getBoundingBox(1)
@@ -1656,7 +1714,7 @@ end
 function World:queryPoint(x, y, collision_class_names)
     local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
     local found, outs = {}, {}
-    self.box2d_world:queryBoundingBox(x, y, x, y, function(fixture)
+    backend.queryArea(self.box2d_world, x, y, x, y, function(fixture)
         local collider = fixture:getUserData()
         if collider and not found[collider] and not collider.destroy_pending and not fixture:isSensor()
             and (not allowed or allowed[collider.collision_class]) and fixture:testPoint(x, y) then
@@ -1677,29 +1735,29 @@ local function newQueryShape(shape_def)
     local kind = shape_def.type
     if kind == 'circle' then
         if type(shape_def.radius) ~= 'number' then error('A circle query shape needs a numeric radius.', 4) end
-        return love.physics.newCircleShape(shape_def.radius)
+        return 'Circle', {shape_def.radius}
     elseif kind == 'rectangle' then
         if type(shape_def.w) ~= 'number' or type(shape_def.h) ~= 'number' then error('A rectangle query shape needs numeric w and h.', 4) end
-        return love.physics.newRectangleShape(shape_def.w, shape_def.h)
+        return 'Rectangle', {shape_def.w, shape_def.h}
     elseif kind == 'polygon' then
         if type(shape_def.vertices) ~= 'table' then error('A polygon query shape needs a vertices table.', 4) end
-        return love.physics.newPolygonShape(unpack(shape_def.vertices))
+        return 'Polygon', shape_def.vertices
     elseif kind == 'edge' then
-        return love.physics.newEdgeShape(shape_def.x1, shape_def.y1, shape_def.x2, shape_def.y2)
+        return 'Edge', {shape_def.x1, shape_def.y1, shape_def.x2, shape_def.y2}
     end
     error('Unknown query shape type ' .. tostring(kind) .. '.', 4)
 end
 
 -- getDistance only looks at the first child of a chain, so a chain is tested one edge at a time.
 local function chainOverlaps(world, query_fixture, fixture, qx1, qy1, qx2, qy2)
-    local shape, body = fixture:getShape(), fixture:getBody()
+    local shape, body = backend.shapeOf(fixture), fixture:getBody()
     local chain_body = world.query_chain_body
     chain_body:setPosition(body:getPosition())
     chain_body:setAngle(body:getAngle())
     for child = 1, shape:getChildCount() do
         local x1, y1, x2, y2 = fixture:getBoundingBox(child)
         if x2 >= qx1 and x1 <= qx2 and y2 >= qy1 and y1 <= qy2 then
-            local edge_fixture = love.physics.newFixture(chain_body, shape:getChildEdge(child))
+            local edge_fixture = backend.chainEdge(chain_body, shape, child)
             local distance = love.physics.getDistance(query_fixture, edge_fixture)
             edge_fixture:destroy()
             if distance <= 0 then return true end
@@ -1709,7 +1767,7 @@ local function chainOverlaps(world, query_fixture, fixture, qx1, qy1, qx2, qy2)
 end
 
 local function newQueryFixture(world, shape_def, x, y)
-    local shape = newQueryShape(shape_def)
+    local kind, args = newQueryShape(shape_def)
     if not world.query_world then
         world.query_world = love.physics.newWorld(0, 0, false)
         world.query_body = love.physics.newBody(world.query_world, 0, 0, 'static')
@@ -1718,7 +1776,8 @@ local function newQueryFixture(world, shape_def, x, y)
     local body = world.query_body
     body:setPosition(x, y)
     body:setAngle(shape_def.angle or 0)
-    return love.physics.newFixture(body, shape)
+    local _, fixture = backend.attach(body, backend.prepare(kind, args))
+    return fixture
 end
 
 function World:queryShape(shape_def, x, y, collision_class_names)
@@ -1730,12 +1789,12 @@ function World:queryShape(shape_def, x, y, collision_class_names)
 
     local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
     local found, outs = {}, {}
-    self.box2d_world:queryBoundingBox(qx1, qy1, qx2, qy2, function(fixture)
+    backend.queryArea(self.box2d_world, qx1, qy1, qx2, qy2, function(fixture)
         local collider = fixture:getUserData()
         if collider and not found[collider] and not collider.destroy_pending and not fixture:isSensor()
             and (not allowed or allowed[collider.collision_class]) then
             local hit
-            if fixture:getShape():type() == 'ChainShape' then
+            if backend.shapeOf(fixture):type() == 'ChainShape' then
                 hit = chainOverlaps(self, query_fixture, fixture, qx1, qy1, qx2, qy2)
             else
                 hit = love.physics.getDistance(query_fixture, fixture) <= 0
@@ -1802,7 +1861,7 @@ function World:shapeCast(shape_def, x, y, dx, dy, collision_class_names)
 
     local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
     local candidates = {}
-    self.box2d_world:queryBoundingBox(qx1, qy1, qx2, qy2, function(fixture)
+    backend.queryArea(self.box2d_world, qx1, qy1, qx2, qy2, function(fixture)
         local collider = fixture:getUserData()
         if collider and not collider.destroy_pending and not fixture:isSensor()
             and (not allowed or allowed[collider.collision_class]) then
@@ -1822,15 +1881,15 @@ function World:shapeCast(shape_def, x, y, dx, dy, collision_class_names)
     end
     for _, fixture in ipairs(candidates) do
         local collider = fixture:getUserData()
-        if fixture:getShape():type() == 'ChainShape' then
-            local shape, chain_body = fixture:getShape(), self.query_chain_body
+        if backend.shapeOf(fixture):type() == 'ChainShape' then
+            local shape, chain_body = backend.shapeOf(fixture), self.query_chain_body
             local fixture_body = fixture:getBody()
             chain_body:setPosition(fixture_body:getPosition())
             chain_body:setAngle(fixture_body:getAngle())
             for child = 1, shape:getChildCount() do
                 local cx1, cy1, cx2, cy2 = fixture:getBoundingBox(child)
                 if cx2 >= qx1 and cx1 <= qx2 and cy2 >= qy1 and cy1 <= qy2 then
-                    local edge_fixture = love.physics.newFixture(chain_body, shape:getChildEdge(child))
+                    local edge_fixture = backend.chainEdge(chain_body, shape, child)
                     consider(edge_fixture, collider)
                     edge_fixture:destroy()
                 end
@@ -1887,13 +1946,7 @@ local function applyJointOptions(joint, options)
         if force and joint.setMaxMotorForce then joint:setMaxMotorForce(force) end
         if torque and joint.setMaxMotorTorque then joint:setMaxMotorTorque(torque) end
     end
-    local spring = joint:type() == 'WheelJoint'
-    if options.frequency then
-        if spring then joint:setSpringFrequency(options.frequency) else joint:setFrequency(options.frequency) end
-    end
-    if options.damping_ratio then
-        if spring then joint:setSpringDampingRatio(options.damping_ratio) else joint:setDampingRatio(options.damping_ratio) end
-    end
+    if options.frequency or options.damping_ratio then backend.setSpring(joint, options.frequency, options.damping_ratio) end
 end
 
 function World:addJoint(joint_type, ...)
@@ -2064,7 +2117,7 @@ end
 function World:destroy()
     local bodies = self.box2d_world:getBodies()
     for _, body in ipairs(bodies) do
-        local collider = body:getFixtures()[1]:getUserData()
+        local collider = backend.parts(body)[1]:getUserData()
         collider:destroy()
     end
     local joints = self.box2d_world:getJoints()
@@ -2153,52 +2206,60 @@ function Collider.new(world, collider_type, ...)
     self.stay_collision_data = {}
 
     local args = {...}
-    local shape, fixture, x, y, settings
+    local kind, shape_args, x, y, settings
     if self.type == 'Circle' then
         x, y, settings = args[1], args[2], args[4]
-        shape = love.physics.newCircleShape(args[3])
+        kind, shape_args = 'Circle', {args[3]}
 
     elseif self.type == 'Rectangle' then
         x, y, settings = args[1] + args[3]/2, args[2] + args[4]/2, args[5]
-        shape = love.physics.newRectangleShape(args[3], args[4])
+        kind, shape_args = 'Rectangle', {args[3], args[4]}
 
     elseif self.type == 'BSGRectangle' then
         x, y, settings = args[1] + args[3]/2, args[2] + args[4]/2, args[6]
         local w, h, s = args[3], args[4], args[5]
-        shape = love.physics.newPolygonShape({
+        kind, shape_args = 'Polygon', {
             -w/2, -h/2 + s, -w/2 + s, -h/2,
              w/2 - s, -h/2, w/2, -h/2 + s,
              w/2, h/2 - s, w/2 - s, h/2,
             -w/2 + s, h/2, -w/2, h/2 - s
-        })
+        }
 
     elseif self.type == 'Polygon' then
         x, y, settings = 0, 0, args[2]
-        shape = love.physics.newPolygonShape(unpack(args[1]))
+        kind, shape_args = 'Polygon', args[1]
 
     elseif self.type == 'Line' then
         x, y, settings = 0, 0, args[5]
-        shape = love.physics.newEdgeShape(args[1], args[2], args[3], args[4])
+        kind, shape_args = 'Edge', {args[1], args[2], args[3], args[4]}
 
     elseif self.type == 'Chain' then
         x, y, settings = 0, 0, args[3]
-        shape = love.physics.newChainShape(args[2], unpack(args[1]))
+        kind, shape_args = 'Chain', {args[2], unpack(args[1])}
     end
 
     checkSettings(settings)
+    local part = backend.prepare(kind, shape_args)
     self.collision_class = (settings and settings.collision_class) or 'Default'
     self.body = love.physics.newBody(self.world.box2d_world, x, y, (settings and settings.body_type) or 'dynamic')
 
     -- Define collision classes and attach them to fixture and sensor
-    fixture = love.physics.newFixture(self.body, shape)
-    self.sensor_mode = (settings and settings.sensor) or nil
-    applyMask(self, fixture)
-    fixture:setUserData(self)
-    local sensor = love.physics.newFixture(self.body, shape)
-    sensor:setSensor(true)
-    sensor:setUserData(self)
-
-    applySettings(self.body, fixture, settings)
+    local shape, fixture, sensor
+    local built, failure = pcall(function()
+        shape, fixture = backend.attach(self.body, part)
+        self.sensor_mode = (settings and settings.sensor) or nil
+        applyMask(self, fixture)
+        fixture:setUserData(self)
+        local _, twin = backend.attach(self.body, part)
+        sensor = twin
+        sensor:setSensor(true)
+        sensor:setUserData(self)
+        applySettings(self.body, fixture, settings)
+    end)
+    if not built then
+        self.body:destroy()
+        error(failure, 0)
+    end
     self.object = settings and settings.object
 
     self.shapes['main'] = shape
@@ -2327,7 +2388,7 @@ function Collider:getGround(max_slope)
     local best, best_dot
     for _, contact in ipairs(self.body:getContacts()) do
         if contact:isTouching() and contact:isEnabled() then
-            local fixture_a, fixture_b = contact:getFixtures()
+            local fixture_a, fixture_b = backend.contactParts(contact)
             if not (fixture_a:isSensor() or fixture_b:isSensor()) then
                 local nx, ny = contact:getNormal()
                 local other = fixture_a
@@ -2407,12 +2468,13 @@ end
 
 function Collider:addShape(shape_name, shape_type, ...)
     if self.shapes[shape_name] or self.fixtures[shape_name] then error("Shape/fixture " .. shape_name .. " already exists.") end
-    local args = {...}
-    local shape = love.physics['new' .. shape_type](unpack(args))
-    local fixture = love.physics.newFixture(self.body, shape)
+    local kind = type(shape_type) == 'string' and shape_type:match('^(%a+)Shape$')
+    if not kind then error("The shape type must be a LÖVE shape name such as 'CircleShape'.", 2) end
+    local part = backend.prepare(kind, {...})
+    local shape, fixture = backend.attach(self.body, part)
     applyMask(self, fixture)
     fixture:setUserData(self)
-    local sensor = love.physics.newFixture(self.body, shape)
+    local _, sensor = backend.attach(self.body, part)
     sensor:setSensor(true)
     sensor:setUserData(self)
 

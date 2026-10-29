@@ -40,8 +40,11 @@ local function remove(list, item)
     end
 end
 
-local function install()
-    local love = {physics = {}, math = {}, graphics = {}, _colors = {}}
+-- version 12 models LÖVE 12: Fixture is merged into Shape (a shape is created attached to a body) and the
+-- deprecated 11 calls do not exist, so a test run proves windfield does not use them.
+local function install(version)
+    local v12 = (version or 11) >= 12
+    local love = {physics = {}, math = {}, graphics = {}, _colors = {}, _version_major = v12 and 12 or 11}
 
     local newWorldObject = class('World', {
         setCallbacks = function(self, ...) self.callbacks = {...} end,
@@ -56,7 +59,7 @@ local function install()
         getJoints = function(self) return self.joints end,
         setGravity = function(self, x, y) self.gx, self.gy = x, y end,
         getGravity = function(self) return self.gx, self.gy end,
-        queryBoundingBox = function(self, _, _, _, _, callback)
+        [v12 and 'queryShapesInArea' or 'queryBoundingBox'] = function(self, _, _, _, _, callback)
             for _, body in ipairs(self.bodies) do
                 for _, fixture in ipairs(body.fixtures) do callback(fixture) end
             end
@@ -117,7 +120,7 @@ local function install()
         getType = function(self) return self.body_type or 'dynamic' end,
         isAwake = function(self) return not self.asleep end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
-        getFixtures = function(self) return self.fixtures end,
+        [v12 and 'getShapes' or 'getFixtures'] = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,
         probe = function() return 'body' end,
         probeFixtureBody = function() return 'body' end,
@@ -140,7 +143,7 @@ local function install()
         getUserData = function(self) return self.data end,
         setSensor = function(self, value) self.sensor = value end,
         isSensor = function(self) return self.sensor == true end,
-        getShape = function(self) return self.shape end,
+        getShape = not v12 and function(self) return self.shape end or nil,
         getBody = function(self) return self.body end,
         getDensity = function(self) return self.density or 1 end,
         testPoint = function(self, x, y)
@@ -178,11 +181,11 @@ local function install()
         getPoints = polygonMethods.getPoints,
         probe = polygonMethods.probe,
         getChildCount = function(self) return #self.points / 2 - 1 + (self.loop and 1 or 0) end,
-        getChildEdge = function(self, index)
+        getChildEdge = not v12 and function(self, index)
             local p, count = self.points, #self.points / 2
             local next_index = index % count + 1
             return newEdge({points = {p[2 * index - 1], p[2 * index], p[2 * next_index - 1], p[2 * next_index]}})
-        end,
+        end or nil,
     })
     local newCircle = class('CircleShape', {
         probe = polygonMethods.probe,
@@ -199,8 +202,11 @@ local function install()
             for _, body in ipairs(self.bodies) do remove(body.joints, self) end
             self.destroyed = true
         end,
-    }, recorders({'setLimits', 'setLimitsEnabled', 'setMotorEnabled', 'setMotorSpeed', 'setMaxMotorTorque',
+    }, recorders(v12 and {'setLimits', 'setLimitsEnabled', 'setMotorEnabled', 'setMotorSpeed', 'setMaxMotorTorque',
+        'setMaxMotorForce', 'setStiffness', 'setDamping', 'setSpringStiffness', 'setSpringDamping'}
+        or {'setLimits', 'setLimitsEnabled', 'setMotorEnabled', 'setMotorSpeed', 'setMaxMotorTorque',
         'setMaxMotorForce', 'setFrequency', 'setDampingRatio', 'setSpringFrequency', 'setSpringDampingRatio'}))
+    joint_methods.getBodies = function(self) return unpack(self.bodies) end
 
     local newGenerator = class('RandomGenerator', {
         random = function(_, n) return math.random(n) end,
@@ -275,6 +281,32 @@ local function install()
 
     function love.physics.newRectangleShape(w, h)
         return newPolygon({points = {-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2, h / 2}})
+    end
+
+    if v12 then
+        local fixture_methods_table = getmetatable(newFixtureObject({}))
+        local old = {
+            Circle = love.physics.newCircleShape, Polygon = love.physics.newPolygonShape, Edge = love.physics.newEdgeShape,
+            Chain = love.physics.newChainShape, Rectangle = love.physics.newRectangleShape,
+        }
+        local part_classes = {}
+        for kind, proto in pairs({Circle = newCircle({}), Polygon = newPolygon({}), Edge = newEdge({}), Chain = newChain({})}) do
+            part_classes[kind] = class(kind .. 'Shape', merge(merge({}, fixture_methods_table), getmetatable(proto)))
+        end
+        local function attach(kind, body, shape)
+            local part = part_classes[kind]({body = body, radius = shape.radius, points = shape.points, loop = shape.loop})
+            part.shape = part
+            body.fixtures[#body.fixtures + 1] = part
+            return part
+        end
+        function love.physics.newCircleShape(body, ...) return attach('Circle', body, old.Circle(...)) end
+        function love.physics.newPolygonShape(body, ...) return attach('Polygon', body, old.Polygon(...)) end
+        function love.physics.newRectangleShape(body, ...) return attach('Polygon', body, old.Rectangle(...)) end
+        function love.physics.newEdgeShape(body, ...) return attach('Edge', body, old.Edge(...)) end
+        function love.physics.newChainShape(body, ...) return attach('Chain', body, old.Chain(...)) end
+        love.physics.newFixture = nil
+        function love.physics.computeLinearStiffness(frequency, ratio) return frequency * 10, ratio * 2 end
+        function love.physics.computeAngularStiffness(frequency, ratio) return frequency * 100, ratio * 3 end
     end
 
     for _, name in ipairs({'DistanceJoint', 'RevoluteJoint', 'PrismaticJoint', 'WeldJoint', 'RopeJoint', 'WheelJoint',
@@ -366,7 +398,7 @@ local function install()
             return unpack(self.positions)
         end,
         isTouching = function(self) return self.touching ~= false end,
-        getFixtures = function(self) return unpack(self.fixtures) end,
+        [v12 and 'getShapes' or 'getFixtures'] = function(self) return unpack(self.fixtures) end,
         setEnabled = function(self, enabled) self.enabled = enabled end,
         isEnabled = function(self) return self.enabled ~= false end,
         setTangentSpeed = function(self, speed) self.tangent_speed = speed end,

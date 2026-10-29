@@ -1,5 +1,6 @@
--- Real LÖVE 11.5 check of the flows the mock covers, plus a screenshot of the
--- debug drawing. Run with: sh tests/smoke/run.sh
+-- Real LÖVE check of the flows the mock covers, plus a screenshot of the debug
+-- drawing when graphics are available. Run with: sh tests/smoke/run.sh
+-- (SMOKE_HEADLESS=1 runs only the physics checks, for builds without a GPU.)
 love.setDeprecationOutput(true)
 love.filesystem.setIdentity('windfield-smoke')
 
@@ -61,11 +62,14 @@ function love.load()
     local proxy_names = require('fixtures.proxy_keys')
     local sample = world:newRectangleCollider(10, 10, 20, 20)
     local missing = {}
+    -- LÖVE 12 dropped these deprecated list getters.
+    local removed_in_12 = {getContactList = true, getFixtureList = true, getJointList = true, getBodyList = true}
+    local function expected(name) return not ((love._version_major or 11) >= 12 and removed_in_12[name]) end
     for _, name in ipairs(proxy_names.collider) do
-        if type(sample[name]) ~= 'function' then missing[#missing + 1] = name end
+        if expected(name) and type(sample[name]) ~= 'function' then missing[#missing + 1] = name end
     end
     for _, name in ipairs(proxy_names.world) do
-        if type(world[name]) ~= 'function' then missing[#missing + 1] = 'world.' .. name end
+        if expected(name) and type(world[name]) ~= 'function' then missing[#missing + 1] = 'world.' .. name end
     end
     check('proxied methods still resolve', #missing == 0, table.concat(missing, ', '))
     local px, py = sample:getPosition()
@@ -310,7 +314,9 @@ function love.load()
         check('named joint constructors build every LÖVE joint type', #mismatched == 0, table.concat(mismatched, ', '))
         check('joint options reach LÖVE', joints.RevoluteJoint:areLimitsEnabled() and joints.RevoluteJoint:isMotorEnabled()
             and math.abs(joints.RevoluteJoint:getMotorSpeed() - 1) < 1e-6 and joints.PrismaticJoint:isMotorEnabled()
-            and math.abs(joints.DistanceJoint:getFrequency() - 4) < 1e-6 and math.abs(joints.WheelJoint:getSpringFrequency() - 5) < 1e-6)
+            and (((love._version_major or 11) >= 12 and joints.DistanceJoint:getStiffness() > 0 and joints.WheelJoint:getSpringStiffness() > 0)
+                or ((love._version_major or 11) < 12 and math.abs(joints.DistanceJoint:getFrequency() - 4) < 1e-6
+                    and math.abs(joints.WheelJoint:getSpringFrequency() - 5) < 1e-6)))
         check('getJointsOf lists the joints of a collider', #joint_world:getJointsOf(jb) >= 5 and #joint_world:getJointsOf(joint_world:newCircleCollider(500, 500, 5)) == 0)
         check('getJointsOf sees a joint removed with removeJoint', (function()
             local before = #joint_world:getJointsOf(ja)
@@ -583,7 +589,7 @@ function love.load()
         filter_world:destroy()
     end
 
-    do
+    if love.graphics then
         local draw_world = wf.newWorld(0, 300, true)
         draw_world:addCollisionClass('Wall')
         draw_world:newRectangleCollider(20, 150, 160, 20, {collision_class = 'Wall', body_type = 'static'})
@@ -724,6 +730,21 @@ function love.load()
     check('Ghost mask lists Player', #world.masks.Ghost.masks > 0)
 end
 
+local function finish()
+    check('solid enter event', seen.ground_enter)
+    check('sensor enter event (ignored pair)', seen.ghost_enter)
+    check('sensor exit event (ignored pair)', seen.ghost_exit)
+    check('stay after enter', player:stay('Ground'))
+    check('collider destroyed from preSolve is gone after the step', victim.body == nil and #destroy_world:getBodies() == 1, #destroy_world:getBodies())
+    check('world:onEnter callback', callbacks.enter == 1, callbacks.enter)
+    check('world:onExit callback', callbacks.exit == 1, callbacks.exit)
+    check('getEnters reports the ground contact', (seen.ground_enters or 0) >= 1, seen.ground_enters)
+    local data = player:getEnterCollisionData('Ground')
+    check('contact geometry readable after the step', data and type(data.nx) == 'number' and type(data.ny) == 'number' and type(data.x1) == 'number', data and data.nx)
+    check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
+    love.event.quit(failed == 0 and 0 or 1)
+end
+
 function love.update(dt)
     frame = frame + 1
     world:update(1 / 60)
@@ -734,6 +755,7 @@ function love.update(dt)
     if player:enter('Ground') then seen.ground_enter = true end
     if player:enter('Ghost') then seen.ghost_enter = true end
     if player:exit('Ghost') then seen.ghost_exit = true end
+    if not love.graphics and frame == 152 then finish() end
 end
 
 function love.draw()
@@ -745,18 +767,5 @@ function love.draw()
             print('screenshot: ' .. love.filesystem.getSaveDirectory() .. '/smoke.png')
         end)
     end
-    if frame == 152 then
-        check('solid enter event', seen.ground_enter)
-        check('sensor enter event (ignored pair)', seen.ghost_enter)
-        check('sensor exit event (ignored pair)', seen.ghost_exit)
-        check('stay after enter', player:stay('Ground'))
-        check('collider destroyed from preSolve is gone after the step', victim.body == nil and #destroy_world:getBodies() == 1, #destroy_world:getBodies())
-        check('world:onEnter callback', callbacks.enter == 1, callbacks.enter)
-        check('world:onExit callback', callbacks.exit == 1, callbacks.exit)
-        check('getEnters reports the ground contact', (seen.ground_enters or 0) >= 1, seen.ground_enters)
-        local data = player:getEnterCollisionData('Ground')
-        check('contact geometry readable after the step', data and type(data.nx) == 'number' and type(data.ny) == 'number' and type(data.x1) == 'number', data and data.nx)
-        check('collider created before a class passes through an ignoring class', select(2, early_collider:getPosition()) > 150)
-        love.event.quit(failed == 0 and 0 or 1)
-    end
+    if frame == 152 then finish() end
 end
