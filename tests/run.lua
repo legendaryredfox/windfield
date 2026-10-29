@@ -89,10 +89,9 @@ end)
 
 test('proxied names never shadow class methods', function()
     local names = dofile('tests/fixtures/proxy_keys.lua')
+    local overrides = {preSolve = true, postSolve = true, setSensor = true, isSensor = true}
     for _, name in ipairs(names.collider) do
-        if name ~= 'preSolve' and name ~= 'postSolve' then
-            eq(rawget(wf.Collider, name), nil, 'Collider.' .. name)
-        end
+        if not overrides[name] then eq(rawget(wf.Collider, name), nil, 'Collider.' .. name) end
     end
     for _, name in ipairs(names.world) do
         eq(rawget(wf.World, name), nil, 'World.' .. name)
@@ -564,6 +563,64 @@ test('ignored class pairs get events from the sensor fixtures', function()
 
     love._fire(world, 'enter', player.sensors.main, ghost.sensors.main)
     truthy(player:enter('Ghost'), 'sensor fixtures')
+end)
+
+test('a sensor collision class passes through everything and reports events', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Zone', {sensor = true})
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local zone = world:newRectangleCollider(0, 0, 10, 10, {collision_class = 'Zone', body_type = 'static'})
+    truthy(zone:isSensor(), 'zone is a sensor')
+    eq(player:isSensor(), false, 'player is not a sensor')
+    love._fire(world, 'enter', player.fixture, zone.fixture)
+    eq(zone:enter('Player'), nil, 'solid fixtures give no event')
+    love._fire(world, 'enter', player.sensors.main, zone.sensors.main)
+    truthy(zone:enter('Player'), 'zone enter')
+    truthy(player:enter('Zone'), 'player enter')
+    love._fire(world, 'exit', player.sensors.main, zone.sensors.main)
+    truthy(zone:exit('Player'), 'zone exit')
+    raises(function() world:addCollisionClass('Both', {sensor = true, ignores = {'Player'}}) end, 'sensor and ignores')
+end)
+
+test('setSensor switches a collider between solid and sensor behavior', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Pickup')
+    local player = world:newCircleCollider(0, 0, 5, {collision_class = 'Player'})
+    local pickup = world:newCircleCollider(0, 0, 5, {collision_class = 'Pickup'})
+    eq(pickup:isSensor(), false, 'solid at first')
+
+    pickup:setSensor(true)
+    truthy(pickup:isSensor(), 'sensor after setSensor(true)')
+    eq(#pickup.fixture.mask, 16, 'solid fixture collides with nothing')
+    love._fire(world, 'enter', player.sensors.main, pickup.sensors.main)
+    truthy(pickup:enter('Player'), 'sensor pair event')
+    truthy(player:enter('Pickup'), 'player side of the event')
+
+    world:update(0)
+    pickup:setSensor(false)
+    eq(pickup:isSensor(), false, 'solid after setSensor(false)')
+    truthy(#pickup.fixture.mask < 16, 'class mask restored')
+    love._fire(world, 'enter', player.sensors.main, pickup.sensors.main)
+    eq(pickup:enter('Player'), nil, 'sensor fixtures of solid classes give no event')
+    love._fire(world, 'enter', player.fixture, pickup.fixture)
+    truthy(pickup:enter('Player'), 'solid pair event again')
+end)
+
+test('sensor mode survives class changes and can be set from settings', function()
+    local world = newWorld()
+    world:addCollisionClass('Player')
+    world:addCollisionClass('Pickup')
+    local pickup = world:newCircleCollider(0, 0, 5, {collision_class = 'Pickup', sensor = true})
+    truthy(pickup:isSensor(), 'sensor from settings')
+    eq(#pickup.fixture.mask, 16, 'mask from settings')
+    pickup:setCollisionClass('Player')
+    eq(#pickup.fixture.mask, 16, 'mask after class change')
+    world:addCollisionClass('Late')
+    eq(#pickup.fixture.mask, 16, 'mask after a class is added')
+    pickup:addShape('extra', 'CircleShape', 3)
+    eq(#pickup.fixtures.extra.mask, 16, 'extra shape mask')
 end)
 
 test('pre and post solve callbacks are stored', function()

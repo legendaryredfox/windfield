@@ -50,6 +50,8 @@
       * [getExits](#getexitsother_collision_class_name)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
+      * [setSensor](#setsensorsensor)
+      * [isSensor](#issensor)
       * [setInterpolated](#setinterpolatedinterpolated)
       * [isInterpolated](#isinterpolated)
       * [getRenderPosition](#getrenderposition)
@@ -469,6 +471,7 @@ Arguments:
 
 Settings:
 
+* `[sensor]` `(boolean)` - Makes colliders of this class sensors: they physically ignore every collision class and still generate enter, stay and exit events. Same as `ignores = {'All'}`, and it cannot be combined with `ignores`. See `Collider:setSensor` for the static body limitation
 * `[ignores]` `(table[string])` - The collision classes that will be physically ignored
 * `[enter]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they enter contact with each other
 * `[exit]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they exit contact with each other
@@ -499,6 +502,7 @@ box = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Player', 
 * `friction` `(number)` - `setFriction` on the solid fixture
 * `density` `(number)` - `setDensity` on the solid fixture; the body mass is recomputed
 * `object` `(any)` - Stored on the collider, same as `setObject`
+* `sensor` `(boolean)` - Starts the collider as a sensor, same as `setSensor(true)`
 
 Keys that are not listed raise an error, so a typo such as `restitutoin` is caught when the collider is created.
 
@@ -1024,6 +1028,33 @@ Arguments:
 Returns:
 
 * `collision_data_list` `(table[table])` - The data of every collider this collider is currently touching, one table per collider with the fields described in `getEnterCollisionData`. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned. Contacts are tracked from the enter and exit events, so `enter` does not have to be called for `stay` to work.
+
+---
+
+#### `:setSensor(sensor)`
+
+Makes the collider a sensor or a solid body again. A sensor passes through every other collider and still generates `enter`, `exit` and `stay` events for the collision classes it was set up with. This replaces the LÖVE `Fixture:setSensor` that used to be reachable through the collider: that call turned only the solid fixture into a sensor, which silently dropped every event of the collider.
+
+```lua
+pickup:setSensor(true)
+if player:enter('Pickup') then ... end
+```
+
+Box2D only creates a contact when at least one of the two bodies is dynamic. A sensor on a static or kinematic body therefore reports nothing for another static or kinematic body, for example a static zone and a kinematic mover. Use a dynamic body for one of them.
+
+Arguments:
+
+* `sensor` `(boolean)` - Whether the collider is a sensor
+
+---
+
+#### `:isSensor()`
+
+Returns whether the collider is a sensor, either through `setSensor`, the `sensor` setting or a sensor collision class.
+
+Returns:
+
+* `sensor` `(boolean)` - The sensor state
 
 ---
 

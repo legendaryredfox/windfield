@@ -8,9 +8,11 @@
 - Collider `settings` keys: `bullet`, `fixed_rotation`, `gravity_scale`, `linear_damping`, `angular_damping`, `sleeping_allowed`, `active`, `angle`, `restitution`, `friction`, `density`, `object`.
 - `World:step(dt)`, `World:setFixedStep(dt, max_steps)` and `World:getAlpha()`: fixed time step stepping with an accumulator and a step cap.
 - `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
+- Sensors: `addCollisionClass(name, {sensor = true})`, the `sensor` collider setting, `Collider:setSensor` and `Collider:isSensor`.
 
 ### Changed
 
+- `Collider:setSensor` and `Collider:isSensor` no longer reach the Box2D fixture. Calling `setSensor(true)` used to make the solid fixture a sensor and the collider reported no events (upstream issue 31); now it makes the whole collider a sensor with events.
 - Collider constructors raise an error for unknown `settings` keys. Before, they were ignored.
 - Creating a world no longer resets the physics meter to `32` when the meter was already set by an earlier world.
 

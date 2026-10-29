@@ -105,6 +105,43 @@ function love.load()
     check('render position sits between the last two steps', y_render > y_before and y_render < y_now, y_before .. ' ' .. y_render .. ' ' .. y_now)
     step_world:destroy()
 
+    local function dropPlayer(configure)
+        local w = wf.newWorld(0, 0, true)
+        w:addCollisionClass('Player')
+        w:addCollisionClass('Zone', {sensor = true})
+        w:addCollisionClass('Pickup')
+        local target = configure(w)
+        local player = w:newCircleCollider(100, 0, 8, {collision_class = 'Player'})
+        player:setLinearVelocity(0, 200)
+        local enters, stays, exits = 0, 0, 0
+        for _ = 1, 120 do
+            w:update(1 / 60)
+            if target:enter('Player') then enters = enters + 1 end
+            if target:stay('Player') then stays = stays + 1 end
+            if target:exit('Player') then exits = exits + 1 end
+        end
+        local _, y = player:getPosition()
+        w:destroy()
+        return enters, stays, exits, y
+    end
+    local enters, stays, exits, y = dropPlayer(function(w)
+        return w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Zone', body_type = 'static'})
+    end)
+    check('sensor class: enter, stay, exit and passes through', enters == 1 and stays > 0 and exits == 1 and y > 130, enters .. ' ' .. stays .. ' ' .. exits .. ' ' .. y)
+    enters, stays, exits, y = dropPlayer(function(w)
+        local pickup = w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Pickup', body_type = 'static'})
+        pickup:setSensor(true)
+        return pickup
+    end)
+    check('setSensor(true) at runtime: events and passes through', enters == 1 and stays > 0 and exits == 1 and y > 130, enters .. ' ' .. stays .. ' ' .. exits .. ' ' .. y)
+    enters, stays, exits, y = dropPlayer(function(w)
+        local pickup = w:newRectangleCollider(0, 100, 200, 20, {collision_class = 'Pickup', body_type = 'static'})
+        pickup:setSensor(true)
+        pickup:setSensor(false)
+        return pickup
+    end)
+    check('setSensor(false) makes the collider solid again', y < 100 and enters >= 1, enters .. ' ' .. y)
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

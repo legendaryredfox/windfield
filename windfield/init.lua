@@ -262,7 +262,15 @@ function World:setExplicitCollisionEvents(value)
     self.explicit_collision_events = value
 end
 
+local function classIgnores(collision_class)
+    if collision_class.sensor then return {'All'} end
+    return collision_class.ignores or {}
+end
+
 function World:addCollisionClass(collision_class_name, collision_class)
+    if collision_class and collision_class.sensor and collision_class.ignores then
+        error('Collision class ' .. collision_class_name .. ' cannot set both sensor and ignores.')
+    end
     if self.collision_classes[collision_class_name] then error('Collision class ' .. collision_class_name .. ' already exists.') end
 
     if self.explicit_collision_events then
@@ -365,7 +373,7 @@ end
 function World:doesType1IgnoreType2(type1, type2)
     local collision_ignores = {}
     for collision_class_name, collision_class in pairs(self.collision_classes) do
-        collision_ignores[collision_class_name] = collision_class.ignores or {}
+        collision_ignores[collision_class_name] = classIgnores(collision_class)
     end
     local all = {}
     for collision_class_name, _ in pairs(collision_ignores) do
@@ -404,7 +412,7 @@ end
 function World:generateCategoriesMasks()
     local collision_ignores = {}
     for collision_class_name, collision_class in pairs(self.collision_classes) do
-        collision_ignores[collision_class_name] = collision_class.ignores or {}
+        collision_ignores[collision_class_name] = classIgnores(collision_class)
     end
     local incoming = {}
     local expanded = {}
@@ -545,34 +553,30 @@ local function addCollisionEvent(collider, other_collision_class_name, event)
     end
 end
 
+local function emitCollisionEvents(list, event_type, a, b, contact)
+    for _, collision in ipairs(list) do
+        if collIf(collision.type1, collision.type2, a, b) then
+            a, b = collEnsure(collision.type1, a, collision.type2, b)
+            addCollisionEvent(a, collision.type2, newCollisionEvent(event_type, a, b, contact))
+            if collision.type1 == collision.type2 then
+                addCollisionEvent(b, collision.type1, newCollisionEvent(event_type, b, a, contact))
+            end
+        end
+    end
+end
+
 function World.collisionOnEnter(fixture_a, fixture_b, contact)
     local a, b = fixture_a:getUserData(), fixture_b:getUserData()
 
     if fixture_a:isSensor() and fixture_b:isSensor() then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_enter.sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
-                    end
-                end
-            end
+            local lists = a.world.collisions.on_enter
+            emitCollisionEvents(lists.sensor, 'enter', a, b, contact)
+            if a.sensor_mode or b.sensor_mode then emitCollisionEvents(lists.non_sensor, 'enter', a, b, contact) end
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then
-            for _, collision in ipairs(a.world.collisions.on_enter.non_sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('enter', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('enter', b, a, contact))
-                    end
-                end
-            end
-        end
+        if a and b then emitCollisionEvents(a.world.collisions.on_enter.non_sensor, 'enter', a, b, contact) end
     end
 end
 
@@ -581,29 +585,13 @@ function World.collisionOnExit(fixture_a, fixture_b, contact)
 
     if fixture_a:isSensor() and fixture_b:isSensor() then
         if a and b then
-            for _, collision in ipairs(a.world.collisions.on_exit.sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
-                    end
-                end
-            end
+            local lists = a.world.collisions.on_exit
+            emitCollisionEvents(lists.sensor, 'exit', a, b, contact)
+            if a.sensor_mode or b.sensor_mode then emitCollisionEvents(lists.non_sensor, 'exit', a, b, contact) end
         end
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
-        if a and b then
-            for _, collision in ipairs(a.world.collisions.on_exit.non_sensor) do
-                if collIf(collision.type1, collision.type2, a, b) then
-                    a, b = collEnsure(collision.type1, a, collision.type2, b)
-                    addCollisionEvent(a, collision.type2, newCollisionEvent('exit', a, b, contact))
-                    if collision.type1 == collision.type2 then 
-                        addCollisionEvent(b, collision.type1, newCollisionEvent('exit', b, a, contact))
-                    end
-                end
-            end
-        end
+        if a and b then emitCollisionEvents(a.world.collisions.on_exit.non_sensor, 'exit', a, b, contact) end
     end
 end
 
@@ -919,7 +907,7 @@ local fixture_settings = {restitution = 'setRestitution', friction = 'setFrictio
 local function checkSettings(settings)
     if not settings then return end
     for key in pairs(settings) do
-        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object'
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor'
             and not body_settings[key] and not fixture_settings[key] then
             error('Unknown collider setting ' .. tostring(key) .. '.', 3)
         end
@@ -935,6 +923,18 @@ local function applySettings(body, fixture, settings)
         if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
     end
     if settings.density ~= nil then body:resetMassData() end
+end
+
+local all_categories = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+local function applyMask(collider, fixture)
+    local mask = collider.world.masks[collider.collision_class]
+    if mask then
+        fixture:setCategory(unpack(mask.categories))
+        fixture:setMask(unpack(collider.sensor_mode and all_categories or mask.masks))
+    elseif collider.sensor_mode then
+        fixture:setMask(unpack(all_categories))
+    end
 end
 
 function Collider.new(world, collider_type, ...)
@@ -994,10 +994,8 @@ function Collider.new(world, collider_type, ...)
 
     -- Define collision classes and attach them to fixture and sensor
     fixture = love.physics.newFixture(self.body, shape)
-    if self.world.masks[self.collision_class] then
-        fixture:setCategory(unpack(self.world.masks[self.collision_class].categories))
-        fixture:setMask(unpack(self.world.masks[self.collision_class].masks))
-    end
+    self.sensor_mode = (settings and settings.sensor) or nil
+    applyMask(self, fixture)
     fixture:setUserData(self)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
@@ -1035,12 +1033,16 @@ end
 function Collider:setCollisionClass(collision_class_name)
     if not self.world.collision_classes[collision_class_name] then error("Collision class " .. collision_class_name .. " doesn't exist.") end
     self.collision_class = collision_class_name
-    for _, fixture in pairs(self.fixtures) do
-        if self.world.masks[collision_class_name] then
-            fixture:setCategory(unpack(self.world.masks[collision_class_name].categories))
-            fixture:setMask(unpack(self.world.masks[collision_class_name].masks))
-        end
-    end
+    for _, fixture in pairs(self.fixtures) do applyMask(self, fixture) end
+end
+
+function Collider:setSensor(sensor)
+    self.sensor_mode = sensor and true or nil
+    for _, fixture in pairs(self.fixtures) do applyMask(self, fixture) end
+end
+
+function Collider:isSensor()
+    return self.sensor_mode == true or self.world.collision_classes[self.collision_class].sensor == true
 end
 
 function Collider:enter(other_collision_class_name)
@@ -1134,10 +1136,7 @@ function Collider:addShape(shape_name, shape_type, ...)
     local args = {...}
     local shape = love.physics['new' .. shape_type](unpack(args))
     local fixture = love.physics.newFixture(self.body, shape)
-    if self.world.masks[self.collision_class] then
-        fixture:setCategory(unpack(self.world.masks[self.collision_class].categories))
-        fixture:setMask(unpack(self.world.masks[self.collision_class].masks))
-    end
+    applyMask(self, fixture)
     fixture:setUserData(self)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
@@ -1159,7 +1158,6 @@ function Collider:removeShape(shape_name)
     self.sensors[shape_name] = nil
 end
 
--- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
 function Collider:_snapshot()
     self.prev_x, self.prev_y = self.body:getPosition()
     self.prev_angle = self.body:getAngle()
@@ -1191,6 +1189,7 @@ function Collider:getRenderAngle()
     return self.prev_angle + (angle - self.prev_angle) * self.world:getAlpha()
 end
 
+-- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
 function Collider:destroy()
     if not self.body or self.destroy_pending then return end
     local world = self.world
