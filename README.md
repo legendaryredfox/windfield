@@ -349,7 +349,7 @@ Copy the `types` folder next to your `windfield` folder and add it, together wit
 
 ```json
 {
-    "runtime.version": "LuaJIT",
+    "runtime.version": "Lua 5.5",
     "workspace.library": ["${3rd}/love2d/library", "types"],
     "diagnostics.globals": ["love"]
 }
