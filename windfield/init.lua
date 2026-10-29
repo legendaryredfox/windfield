@@ -2066,10 +2066,14 @@ local fixture_settings = {restitution = 'setRestitution', friction = 'setFrictio
 local function checkSettings(settings)
     if not settings then return end
     for key in pairs(settings) do
-        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor'
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object' and key ~= 'sensor' and key ~= 'motion_quality'
             and not body_settings[key] and not fixture_settings[key] then
             error('Unknown collider setting ' .. tostring(key) .. '.', 3)
         end
+    end
+    local quality = settings.motion_quality
+    if quality ~= nil and quality ~= 'discrete' and quality ~= 'continuous' then
+        error("motion_quality must be 'discrete' or 'continuous'.", 3)
     end
 end
 
@@ -2082,6 +2086,7 @@ local function applySettings(body, fixture, settings)
         if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
     end
     if settings.density ~= nil then body:resetMassData() end
+    if settings.motion_quality ~= nil then body:setBullet(settings.motion_quality == 'continuous') end
 end
 
 local all_categories = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
@@ -2264,6 +2269,15 @@ local function collectEvents(collider, other_collision_class_name, collision_typ
         end
     end
     return out
+end
+
+function Collider:setMotionQuality(quality)
+    if quality ~= 'discrete' and quality ~= 'continuous' then error("The motion quality must be 'discrete' or 'continuous'.", 2) end
+    self.body:setBullet(quality == 'continuous')
+end
+
+function Collider:getMotionQuality()
+    return self.body:isBullet() and 'continuous' or 'discrete'
 end
 
 function Collider:isPooled()

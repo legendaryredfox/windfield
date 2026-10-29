@@ -46,6 +46,7 @@ function wf.newWorld(xg, yg, sleep, options) end
 ---@field collision_class? string Default 'Default'.
 ---@field body_type? windfield.BodyType Default 'dynamic'.
 ---@field bullet? boolean
+---@field motion_quality? 'discrete'|'continuous'
 ---@field fixed_rotation? boolean
 ---@field gravity_scale? number
 ---@field linear_damping? number
@@ -475,6 +476,12 @@ local Collider = {}
 
 ---@param collision_class_name string
 function Collider:setCollisionClass(collision_class_name) end
+
+---@param quality 'discrete'|'continuous' Same as `setBullet(false)` and `setBullet(true)`.
+function Collider:setMotionQuality(quality) end
+
+---@return 'discrete'|'continuous'
+function Collider:getMotionQuality() end
 
 ---@return boolean
 function Collider:isPooled() end

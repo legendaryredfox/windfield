@@ -74,6 +74,8 @@
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
       * [setSensor](#setsensorsensor)
       * [isSensor](#issensor)
+      * [setMotionQuality](#setmotionqualityquality)
+      * [getMotionQuality](#getmotionquality)
       * [isPooled](#ispooled)
       * [getGround](#getgroundmax_slope)
       * [moveKinematic](#movekinematicx-y-angle-dt)
@@ -621,6 +623,7 @@ box = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Player', 
 * `collision_class='Default'` `(string)` - The name of the collision class
 * `body_type='dynamic'` `(string)` - `'dynamic'`, `'static'` or `'kinematic'`
 * `bullet` `(boolean)` - Continuous collision detection against other moving bodies (`setBullet`)
+* `motion_quality` `(string)` - `'discrete'` or `'continuous'`, the same as `bullet = false` or `bullet = true`
 * `fixed_rotation` `(boolean)` - Prevents the body from rotating (`setFixedRotation`)
 * `gravity_scale` `(number)` - Multiplier applied to the world's gravity (`setGravityScale`)
 * `linear_damping` `(number)` - `setLinearDamping`
@@ -1634,6 +1637,28 @@ Returns whether the collider is a sensor, either through `setSensor`, the `senso
 Returns:
 
 * `sensor` `(boolean)` - The sensor state
+
+---
+
+#### `:setMotionQuality(quality)`
+
+Chooses how the body is moved by the physics step: `'discrete'` (the default) or `'continuous'`, which is the same as `setBullet`. A discrete body that moves further than its own size in one step can pass through a thin body. Box2D already checks moves against static and kinematic bodies continuously, so a fast bullet does not tunnel through a thin wall; the continuous mode is for fast bodies that have to hit thin *dynamic* bodies. In the tests a ball at 9000 pixels per second crossed a 2 pixel dynamic wall in discrete mode and was stopped by it in continuous mode. Continuous mode costs more, so use it for the few fast bodies that need it.
+
+```lua
+bullet:setMotionQuality('continuous')
+```
+
+Arguments:
+
+* `quality` `(string)` - `'discrete'` or `'continuous'`
+
+---
+
+#### `:getMotionQuality()`
+
+Returns:
+
+* `quality` `(string)` - `'discrete'` or `'continuous'`
 
 ---
 

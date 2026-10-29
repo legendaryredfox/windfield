@@ -102,6 +102,10 @@ local function install()
         end,
         getContacts = function(self) return self.contacts or {} end,
         getJoints = function(self) return self.joints end,
+        isBullet = function(self)
+            local call = self.calls and self.calls.setBullet
+            return call ~= nil and call[1] == true
+        end,
         isActive = function(self)
             local call = self.calls and self.calls.setActive
             return not (call and call[1] == false)

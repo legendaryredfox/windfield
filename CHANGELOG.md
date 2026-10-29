@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Collider:setMotionQuality('discrete'|'continuous')`, `getMotionQuality()` and the `motion_quality` setting: named aliases for bullet mode.
+
 ## 0.11.0
 
 Tiled maps through Simple-Tiled-Implementation. Purely additive.

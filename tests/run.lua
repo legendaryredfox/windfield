@@ -1003,6 +1003,22 @@ test('fromSTI honors layer filters, the class property name, offsets and validat
     raises(function() wf.fromSTI(map, world, {layerz = {}}) end, 'unknown option')
 end)
 
+test('motion quality is a named alias for bullet mode', function()
+    local world = newWorld()
+    local body = world:newCircleCollider(0, 0, 5)
+    eq(body:getMotionQuality(), 'discrete', 'discrete by default')
+    body:setMotionQuality('continuous')
+    eq(body.body.calls.setBullet[1], true, 'continuous sets bullet mode')
+    eq(body:getMotionQuality(), 'continuous', 'getMotionQuality')
+    body:setMotionQuality('discrete')
+    eq(body.body.calls.setBullet[1], false, 'discrete clears bullet mode')
+    raises(function() body:setMotionQuality('fast') end, 'unknown quality')
+    local fast = world:newCircleCollider(0, 0, 5, {motion_quality = 'continuous'})
+    eq(fast.body.calls.setBullet[1], true, 'motion_quality setting')
+    raises(function() world:newCircleCollider(0, 0, 5, {motion_quality = 'warp'}) end, 'bad setting value')
+    eq(#world:getBodies(), 2, 'a rejected setting leaves no body behind')
+end)
+
 local function forcesOn(collider)
     local sum_x, sum_y = 0, 0
     for _, force in ipairs(collider.body.forces or {}) do

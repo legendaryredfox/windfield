@@ -482,6 +482,24 @@ function love.load()
     check('fromSTI: the sensor reports the slab_ball and lets it fall through', spikes_hits >= 1 and select(2, diver:getPosition()) > 300, spikes_hits)
     sti_world:destroy()
 
+    local function shoot(quality)
+        local w = wf.newWorld(0, 0, true)
+        w:newRectangleCollider(300, 0, 2, 200)
+        local bullet = w:newCircleCollider(0, 100, 3, {motion_quality = quality})
+        bullet:setLinearVelocity(9000, 0)
+        for _ = 1, 30 do w:update(1 / 60) end
+        local x = bullet:getPosition()
+        w:destroy()
+        return x
+    end
+    check('motion quality: a fast ball tunnels through a thin dynamic wall when discrete', shoot('discrete') > 1000, shoot('discrete'))
+    check('motion quality: a continuous ball does not', shoot('continuous') < 600, shoot('continuous'))
+    local mq_world = wf.newWorld(0, 0, true)
+    local mq = mq_world:newCircleCollider(0, 0, 3)
+    mq:setMotionQuality('continuous')
+    check('motion quality: setMotionQuality and getMotionQuality reach LÖVE', mq:getMotionQuality() == 'continuous' and mq:isBullet())
+    mq_world:destroy()
+
     local fx_world = wf.newWorld(0, 0, true)
     local gust = fx_world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 300, h = 100, gravity = {100, 0}})
     local inside = fx_world:newCircleCollider(50, 50, 10)
