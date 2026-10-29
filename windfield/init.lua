@@ -857,6 +857,36 @@ function World:queryLine(x1, y1, x2, y2, collision_class_names)
     return outs
 end
 
+function World:raycast(x1, y1, x2, y2, collision_class_names, mode)
+    mode = mode or 'all'
+    if mode ~= 'all' and mode ~= 'closest' then error("Unknown raycast mode " .. tostring(mode) .. ".") end
+    if self.query_debug_drawing_enabled then
+        table.insert(self.query_debug_draw, {type = 'line', x1 = x1, y1 = y1, x2 = x2, y2 = y2, frames = self.draw_query_for_n_frames})
+    end
+
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local closest = mode == 'closest'
+    local hits = {}
+    self.box2d_world:rayCast(x1, y1, x2, y2, function(fixture, x, y, nx, ny, fraction)
+        local collider = fixture:getUserData()
+        if not collider or collider.destroy_pending or fixture:isSensor()
+            or (allowed and not allowed[collider.collision_class]) then
+            return -1
+        end
+        local hit = {collider = collider, x = x, y = y, nx = nx, ny = ny, fraction = fraction}
+        if closest then
+            hits[1] = hit
+            return fraction
+        end
+        hits[#hits + 1] = hit
+        return 1
+    end)
+
+    if closest then return hits[1] end
+    table.sort(hits, function(a, b) return a.fraction < b.fraction end)
+    return hits
+end
+
 function World:addJoint(joint_type, ...)
     local args = {...}
     if args[1].body then args[1] = args[1].body end

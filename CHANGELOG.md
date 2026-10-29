@@ -10,6 +10,7 @@
 - `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
 - Sensors: `addCollisionClass(name, {sensor = true})`, the `sensor` collider setting, `Collider:setSensor` and `Collider:isSensor`.
 - LuaLS type definitions in `types/windfield.lua` and a `.luarc.json`.
+- `World:raycast(x1, y1, x2, y2, classes, mode)`: hits with point, normal and fraction, sorted by distance, or only the closest.
 
 ### Changed
 

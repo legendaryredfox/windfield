@@ -34,6 +34,7 @@
       * [queryRectangleArea](#queryrectangleareax-y-w-h-collision_class_names)
       * [queryPolygonArea](#querypolygonareavertices-collision_class_names)
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
+      * [raycast](#raycastx1-y1-x2-y2-collision_class_names-mode)
       * [addJoint](#addjointjoint_type-)
       * [removeJoint](#removejointjoint)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
@@ -733,6 +734,36 @@ Arguments:
 Returns:
 
 * `table[Collider]` - The table of colliders with the specified collision classes inside the area
+
+---
+
+#### `:raycast(x1, y1, x2, y2, collision_class_names, mode)`
+
+Casts a ray from the first point to the second one and returns where it hits colliders, with the hit point and surface normal. `queryLine` only tells which colliders the line touches, in no particular order.
+
+```lua
+local hits = world:raycast(100, 100, 400, 100)
+for _, hit in ipairs(hits) do
+    print(hit.collider.collision_class, hit.x, hit.y, hit.nx, hit.ny, hit.fraction)
+end
+
+local wall = world:raycast(player_x, player_y, enemy_x, enemy_y, {'All', except = {'Zone'}}, 'closest')
+if wall then print('line of sight blocked by', wall.collider) end
+```
+
+Arguments:
+
+* `x1` `(number)` - The x position of the start of the ray
+* `y1` `(number)` - The y position of the start of the ray
+* `x2` `(number)` - The x position of the end of the ray
+* `y2` `(number)` - The y position of the end of the ray
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`. Sensor colliders (`setSensor` or a `sensor` collision class) are hit like any other collider, so leave their classes out to let the ray pass through them
+* `[mode='all']` `(string)` - `'all'` returns every hit sorted from the nearest to the farthest, `'closest'` returns only the nearest one
+
+Returns:
+
+* `all` mode: `table[table]` - The hits, each with `collider`, `x`, `y` (hit point), `nx`, `ny` (surface normal at the hit point) and `fraction` (0 at the start of the ray, 1 at its end). Empty when nothing is hit
+* `closest` mode: `table` - The nearest hit, with the same fields, or `nil` when nothing is hit
 
 ---
 

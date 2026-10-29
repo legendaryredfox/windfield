@@ -61,8 +61,17 @@ local function install()
             end
         end,
         rayCast = function(self, _, _, _, _, callback)
+            local max_fraction = 1
             for _, body in ipairs(self.bodies) do
-                for _, fixture in ipairs(body.fixtures) do callback(fixture, 0, 0, 0, 0, 0) end
+                for _, fixture in ipairs(body.fixtures) do
+                    local hit = fixture.ray or {}
+                    local fraction = hit.fraction or 0
+                    if fraction <= max_fraction then
+                        local result = callback(fixture, hit.x or 0, hit.y or 0, hit.xn or 0, hit.yn or 0, fraction)
+                        if result == 0 then return end
+                        if result >= 0 and result < max_fraction then max_fraction = result end
+                    end
+                end
             end
         end,
         destroy = function(self) self.destroyed = true end,

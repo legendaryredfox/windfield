@@ -176,6 +176,23 @@ function World:queryPolygonArea(vertices, collision_class_names) end
 ---@return windfield.Collider[]
 function World:queryLine(x1, y1, x2, y2, collision_class_names) end
 
+---@class windfield.RayHit
+---@field collider windfield.Collider
+---@field x number Hit point x.
+---@field y number Hit point y.
+---@field nx number Surface normal x at the hit point.
+---@field ny number Surface normal y at the hit point.
+---@field fraction number 0 at the start of the ray, 1 at its end.
+
+---@param x1 number
+---@param y1 number
+---@param x2 number
+---@param y2 number
+---@param collision_class_names? windfield.ClassNames Default {'All'}.
+---@param mode? 'all'|'closest' Default 'all'.
+---@return windfield.RayHit[]|windfield.RayHit|nil hits Sorted by distance in 'all' mode, the nearest hit or nil in 'closest' mode.
+function World:raycast(x1, y1, x2, y2, collision_class_names, mode) end
+
 ---@param joint_type string LÖVE joint name without `new`, such as 'MouseJoint' or 'RevoluteJoint'.
 ---@param ... any Arguments of the LÖVE constructor. Colliders are replaced by their body.
 ---@return love.Joint
