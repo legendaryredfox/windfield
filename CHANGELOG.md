@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+
+Tiled maps through Simple-Tiled-Implementation. Purely additive.
+
+### Added
+
+- `wf.fromSTI(map, world, opts)`: build colliders from a map loaded by Simple-Tiled-Implementation (collidable layers, tile runs, rectangles, circles, ellipses, polygons, polylines, with classes and properties). Checked against maps loaded by the real STI.
+
 ## 0.10.0
 
 Snapshot and restore. Purely additive.

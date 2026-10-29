@@ -446,6 +446,42 @@ function love.load()
     check('snapshot: a short simple simulation after restore stays within 0.01 px of the original', drift < 0.01, drift)
     snap_world:destroy()
 
+    local sti_map = love.filesystem.load('fixtures/sti_collision_map.lua')()
+    local by_layer = {}
+    for _, layer in ipairs(sti_map.layers) do by_layer[layer.name] = layer end
+    for _, instances in pairs(sti_map.tileInstances) do
+        for _, instance in ipairs(instances) do instance.layer = by_layer[instance.layer_name] end
+    end
+    local sti_world = wf.newWorld(0, 400, true)
+    sti_world:addCollisionClass('Wall')
+    sti_world:addCollisionClass('Hazard')
+    sti_world:addCollisionClass('Ball')
+    local sti_colliders = wf.fromSTI(sti_map, sti_world)
+    sti_world:update(0)
+    check('fromSTI: builds a collider for every collidable shape and tile run', #sti_colliders == 11, #sti_colliders)
+    local function at(x, y) local c = sti_world:getColliderAt(x, y) return c and c:getObject() and c:getObject().name or (c and c.collision_class) end
+    check('fromSTI: rectangle and tile runs', at(100, 50) == 'slab' and at(150, 270) == 'Wall' and at(336, 144) == 'Wall' and at(230, 270) == nil and at(90, 270) == nil)
+    check('fromSTI: circle, ellipse and polygon', at(420, 70) == 'pillar' and at(540, 70) == 'oval' and at(505, 55) == nil and at(120, 170) == 'ell' and at(160, 210) == nil)
+    check('fromSTI: rotated rectangle follows the rotation', at(324, 123) == 'ramp' and at(300, 130) == nil and at(358, 103) == nil)
+    check('fromSTI: polyline is a chain', sti_world:queryLine(225, 150, 225, 250)[1] ~= nil and #sti_world:queryRectangleArea(240, 200, 5, 5) >= 0)
+    local slab_ball = sti_world:newCircleCollider(110, 0, 6, {collision_class = 'Ball'})
+    local crate
+    for _, collider in ipairs(sti_colliders) do if collider:getObject() and collider:getObject().name == 'crate' then crate = collider end end
+    for _ = 1, 120 do sti_world:update(1 / 60) end
+    check('fromSTI: a slab_ball slab_ball on the slab rests on it', select(2, slab_ball:getPosition()) < 32 and select(2, slab_ball:getPosition()) > 0, select(2, slab_ball:getPosition()))
+    check('fromSTI: the dynamic object falls', select(2, crate:getPosition()) > 270, select(2, crate:getPosition()))
+    local spikes_hits = 0
+    for _, collider in ipairs(sti_colliders) do
+        if collider:getObject() and collider:getObject().name == 'spikes' then
+            check('fromSTI: the sensor object has its class and passes things through', collider.collision_class == 'Hazard' and collider:isSensor())
+            collider:onEnter('Ball', function() spikes_hits = spikes_hits + 1 end)
+        end
+    end
+    local diver = sti_world:newCircleCollider(350, 150, 6, {collision_class = 'Ball'})
+    for _ = 1, 120 do sti_world:update(1 / 60) end
+    check('fromSTI: the sensor reports the slab_ball and lets it fall through', spikes_hits >= 1 and select(2, diver:getPosition()) > 300, spikes_hits)
+    sti_world:destroy()
+
     local fx_world = wf.newWorld(0, 0, true)
     local gust = fx_world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 300, h = 100, gravity = {100, 0}})
     local inside = fx_world:newCircleCollider(50, 50, 10)

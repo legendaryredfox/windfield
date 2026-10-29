@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.10.0'
+wf._VERSION = '0.11.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -84,6 +84,155 @@ function timer_methods:consume()
         return true
     end
     return false
+end
+
+local sti_options = {layers = true, class_property = true, default_class = true, merge_tiles = true, ellipse_segments = true}
+
+local function stiSettings(properties, class_property, default_class, object)
+    local settings = {collision_class = properties[class_property] or default_class, object = object}
+    if properties.dynamic == true then settings.body_type = 'dynamic'
+    elseif properties.kinematic == true then settings.body_type = 'kinematic'
+    else settings.body_type = 'static' end
+    if properties.sensor == true then settings.sensor = true end
+    settings.friction, settings.restitution, settings.density = properties.friction, properties.restitution, properties.density
+    return settings
+end
+
+local function flatVertices(points, offsetx, offsety)
+    local flat = {}
+    for _, point in ipairs(points) do
+        flat[#flat + 1] = point.x + offsetx
+        flat[#flat + 1] = point.y + offsety
+    end
+    return flat
+end
+
+-- STI's own ellipse polygon is a fan that starts at the center, so the outline is computed here. Tiled rotates objects around their x, y.
+local function ellipseVertices(object, segments, offsetx, offsety)
+    local angle = math.rad(object.rotation or 0)
+    local cos, sin = math.cos(angle), math.sin(angle)
+    local cx, cy = object.width / 2, object.height / 2
+    local flat = {}
+    for i = 0, segments - 1 do
+        local t = i * 2 * math.pi / segments
+        local px, py = cx + cx * math.cos(t), cy + cy * math.sin(t)
+        flat[#flat + 1] = object.x + offsetx + px * cos - py * sin
+        flat[#flat + 1] = object.y + offsety + px * sin + py * cos
+    end
+    return flat
+end
+
+-- One rectangle per run of neighbouring tiles of a row, so a wall of 100 tiles is a handful of shapes.
+local function tileRuns(map, layer, merge)
+    local rows, runs = {}, {}
+    for _, instances in pairs(map.tileInstances or {}) do
+        for _, instance in ipairs(instances) do
+            if instance.layer == layer then
+                rows[instance.y] = rows[instance.y] or {}
+                table.insert(rows[instance.y], instance.x)
+            end
+        end
+    end
+    for y, xs in pairs(rows) do
+        table.sort(xs)
+        local start, last
+        for _, x in ipairs(xs) do
+            if start and merge and x == last + map.tilewidth then
+                last = x
+            else
+                if start then runs[#runs + 1] = {x = start, y = y, w = last - start + map.tilewidth, h = map.tileheight} end
+                start, last = x, x
+            end
+        end
+        runs[#runs + 1] = {x = start, y = y, w = last - start + map.tilewidth, h = map.tileheight}
+    end
+    table.sort(runs, function(a, b) if a.y ~= b.y then return a.y < b.y end return a.x < b.x end)
+    return runs
+end
+
+function wf.fromSTI(map, world, opts)
+    if type(map) ~= 'table' or type(map.layers) ~= 'table' then error('fromSTI needs a map loaded by Simple-Tiled-Implementation.', 2) end
+    if type(world) ~= 'table' or not world.collision_classes then error('fromSTI needs a windfield world.', 2) end
+    opts = opts or {}
+    for key in pairs(opts) do
+        if not sti_options[key] then error('Unknown fromSTI option ' .. tostring(key) .. '.', 2) end
+    end
+    local class_property = opts.class_property or 'collision_class'
+    local default_class = opts.default_class or 'Default'
+    local merge = opts.merge_tiles ~= false
+    local offsetx, offsety = map.offsetx or 0, map.offsety or 0
+    local wanted
+    if opts.layers then
+        wanted = {}
+        for _, name in ipairs(opts.layers) do wanted[name] = true end
+    end
+
+    local jobs = {}
+    local function add(kind, args, settings)
+        if not world.collision_classes[settings.collision_class] then
+            error('fromSTI: the collision class ' .. tostring(settings.collision_class) .. ' does not exist in the world.', 3)
+        end
+        jobs[#jobs + 1] = {kind = kind, args = args, settings = settings}
+    end
+
+    for _, layer in ipairs(map.layers) do
+        if not wanted or wanted[layer.name] then
+            local layer_properties = layer.properties or {}
+            if layer.type == 'tilelayer' and layer_properties.collidable == true then
+                for _, run in ipairs(tileRuns(map, layer, merge)) do
+                    add('Rectangle', {run.x + offsetx, run.y + offsety, run.w, run.h}, stiSettings(layer_properties, class_property, default_class, nil))
+                end
+            elseif layer.type == 'objectgroup' then
+                for _, object in ipairs(layer.objects or {}) do
+                    local properties = object.properties or {}
+                    if layer_properties.collidable == true or properties.collidable == true then
+                        local merged = {}
+                        for key, value in pairs(layer_properties) do merged[key] = value end
+                        for key, value in pairs(properties) do merged[key] = value end
+                        local settings = stiSettings(merged, class_property, default_class, object)
+                        local shape = not object.gid and object.shape
+                        if shape == 'rectangle' then
+                            if (object.rotation or 0) == 0 then
+                                add('Rectangle', {object.x + offsetx, object.y + offsety, object.width, object.height}, settings)
+                            else
+                                add('Polygon', {flatVertices(object.rectangle, offsetx, offsety)}, settings)
+                            end
+                        elseif shape == 'ellipse' then
+                            if object.width == object.height then
+                                add('Circle', {object.x + object.width / 2 + offsetx, object.y + object.height / 2 + offsety, object.width / 2}, settings)
+                            else
+                                add('Concave', {ellipseVertices(object, opts.ellipse_segments or 24, offsetx, offsety)}, settings)
+                            end
+                        elseif shape == 'polygon' then
+                            add('Concave', {flatVertices(object.polygon, offsetx, offsety)}, settings)
+                        elseif shape == 'polyline' then
+                            local flat = flatVertices(object.polyline, offsetx, offsety)
+                            if #flat == 4 then add('Line', flat, settings) else add('Chain', {flat, false}, settings) end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local colliders = {}
+    local builders = {
+        Rectangle = function(a, settings) return world:newRectangleCollider(a[1], a[2], a[3], a[4], settings) end,
+        Circle = function(a, settings) return world:newCircleCollider(a[1], a[2], a[3], settings) end,
+        Polygon = function(a, settings) return world:newPolygonCollider(a[1], settings) end,
+        Concave = function(a, settings) return world:newConcavePolygonCollider(a[1], settings) end,
+        Line = function(a, settings) return world:newLineCollider(a[1], a[2], a[3], a[4], settings) end,
+        Chain = function(a, settings) return world:newChainCollider(a[1], a[2], settings) end,
+    }
+    for _, job in ipairs(jobs) do
+        local ok, result = pcall(builders[job.kind], job.args, job.settings)
+        if not ok then
+            for _, collider in ipairs(colliders) do collider:destroy() end
+            error(result, 2)
+        end
+        colliders[#colliders + 1] = result
+    end
+    return colliders
 end
 
 function wf.newWorld(xg, yg, sleep, options)

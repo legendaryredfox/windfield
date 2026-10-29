@@ -10,6 +10,19 @@ local wf = {}
 ---@class windfield.WorldOptions
 ---@field meter? number LÖVE physics meter in pixels per meter. Default 32. Global to LÖVE.
 
+---@class windfield.FromSTIOptions
+---@field layers? string[] Only these layers, by name.
+---@field class_property? string Default 'collision_class'.
+---@field default_class? string Default 'Default'.
+---@field merge_tiles? boolean Default true.
+---@field ellipse_segments? integer Default 24.
+
+---@param map table A map loaded by Simple-Tiled-Implementation.
+---@param world windfield.World
+---@param opts? windfield.FromSTIOptions
+---@return windfield.Collider[]
+function wf.fromSTI(map, world, opts) end
+
 ---@class windfield.Timer
 ---@field start fun(self: windfield.Timer, duration?: number)
 ---@field update fun(self: windfield.Timer, dt: number)
