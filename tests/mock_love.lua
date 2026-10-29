@@ -232,6 +232,8 @@ local function install()
         end,
         setEnabled = function(self, enabled) self.enabled = enabled end,
         isEnabled = function(self) return self.enabled ~= false end,
+        setTangentSpeed = function(self, speed) self.tangent_speed = speed end,
+        getTangentSpeed = function(self) return self.tangent_speed or 0 end,
     })
 
     -- Calls the callback registered with World:setCallbacks and returns the

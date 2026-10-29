@@ -42,6 +42,8 @@ function wf.newWorld(xg, yg, sleep, options) end
 ---@class windfield.CollisionClass
 ---@field ignores? windfield.Ignores Classes this class physically ignores. Cannot be combined with `sensor`.
 ---@field sensor? boolean Pass through every class and still report events. Same as `ignores = {'All'}`.
+---@field one_way? number[] `{nx, ny}`: colliders are solid only for bodies on the side this vector points to.
+---@field conveyor? number Carry speed in pixels per second.
 ---@field enter? string[] Classes that generate enter events.
 ---@field exit? string[] Classes that generate exit events.
 ---@field pre? string[] Classes that generate pre solve events.

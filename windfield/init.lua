@@ -81,6 +81,9 @@ function World.new(wf, xg, yg, sleep, options)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.one_way = {}
+    self.conveyors = {}
+    self.has_contact_rules = false
     self.collider_filter = nil
     self.filtered_contacts = setmetatable({}, {__mode = 'k'})
     self.fixed_dt = 1/60
@@ -277,6 +280,20 @@ function World:addCollisionClass(collision_class_name, collision_class)
     if collision_class and collision_class.sensor and collision_class.ignores then
         error('Collision class ' .. collision_class_name .. ' cannot set both sensor and ignores.')
     end
+    local one_way, conveyor
+    if collision_class and collision_class.one_way ~= nil then
+        local normal = collision_class.one_way
+        local nx, ny = type(normal) == 'table' and normal[1], type(normal) == 'table' and normal[2]
+        if type(nx) ~= 'number' or type(ny) ~= 'number' or (nx == 0 and ny == 0) then
+            error('Collision class ' .. collision_class_name .. ': one_way must be a table {nx, ny} that is not zero.')
+        end
+        local length = math.sqrt(nx * nx + ny * ny)
+        one_way = {nx = nx / length, ny = ny / length}
+    end
+    if collision_class and collision_class.conveyor ~= nil then
+        conveyor = collision_class.conveyor
+        if type(conveyor) ~= 'number' then error('Collision class ' .. collision_class_name .. ': conveyor must be a number.') end
+    end
     if self.collision_classes[collision_class_name] then error('Collision class ' .. collision_class_name .. ' already exists.') end
 
     if self.explicit_collision_events then
@@ -302,6 +319,10 @@ function World:addCollisionClass(collision_class_name, collision_class)
             end
         end
     end
+
+    self.one_way[collision_class_name] = one_way
+    self.conveyors[collision_class_name] = conveyor
+    self.has_contact_rules = next(self.one_way) ~= nil or next(self.conveyors) ~= nil
 
     self:collisionClassesSet()
 end
@@ -571,6 +592,28 @@ local function emitCollisionEvents(list, event_type, a, b, contact)
     end
 end
 
+local one_way_speed_tolerance = 1
+
+function World._oneWaySolid(platform_nx, platform_ny, contact_nx, contact_ny, relative_vx, relative_vy)
+    return contact_nx * platform_nx + contact_ny * platform_ny > 0
+        and relative_vx * platform_nx + relative_vy * platform_ny <= one_way_speed_tolerance
+end
+
+local function oneWayDisables(platform, other, contact_nx, contact_ny)
+    local normal = platform.world.one_way[platform.collision_class]
+    if not normal then return false end
+    local pvx, pvy = platform.body:getLinearVelocity()
+    local ovx, ovy = other.body:getLinearVelocity()
+    return not World._oneWaySolid(normal.nx, normal.ny, contact_nx, contact_ny, ovx - pvx, ovy - pvy)
+end
+
+local function applyContactRules(world, a, b, contact)
+    local nx, ny = contact:getNormal()
+    if oneWayDisables(a, b, nx, ny) or oneWayDisables(b, a, -nx, -ny) then contact:setEnabled(false) end
+    local speed = world.conveyors[a.collision_class] or world.conveyors[b.collision_class]
+    if speed then contact:setTangentSpeed(-speed / love.physics.getMeter()) end
+end
+
 local function contactRejected(a, b, contact)
     local filter = a.world.collider_filter
     if not filter or filter(a, b) ~= false then return false end
@@ -633,6 +676,7 @@ function World.collisionPre(fixture_a, fixture_b, contact)
 
     elseif not (fixture_a:isSensor() or fixture_b:isSensor()) then
         if a and b and not contactRejected(a, b, contact) then
+            if a.world.has_contact_rules then applyContactRules(a.world, a, b, contact) end
             for _, collision in ipairs(a.world.collisions.pre.non_sensor) do
                 if collIf(collision.type1, collision.type2, a, b) then
                     a, b = collEnsure(collision.type1, a, collision.type2, b)

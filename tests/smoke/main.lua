@@ -186,6 +186,30 @@ function love.load()
     check('collider filter: rejected contact passes through with no events', ghost_y > 130 and ghost_enters == 0 and ghost_exits == 0, ghost_y .. ' ' .. ghost_enters .. ' ' .. ghost_exits)
     filter_world:destroy()
 
+    local rules_world = wf.newWorld(0, 300, true)
+    rules_world:addCollisionClass('Platform', {one_way = {0, -1}})
+    rules_world:addCollisionClass('Belt', {conveyor = 100})
+    rules_world:addCollisionClass('Ball')
+    rules_world:newRectangleCollider(0, 100, 150, 10, {collision_class = 'Platform', body_type = 'static'})
+    local lander = rules_world:newCircleCollider(40, 0, 8, {collision_class = 'Ball'})
+    local jumper = rules_world:newCircleCollider(110, 200, 8, {collision_class = 'Ball'})
+    jumper:setLinearVelocity(0, -400)
+    local early_crate = rules_world:newRectangleCollider(300, 60, 20, 20, {friction = 1})
+    rules_world:newRectangleCollider(200, 100, 2000, 10, {collision_class = 'Belt', body_type = 'static'})
+    local late_crate = rules_world:newRectangleCollider(500, 60, 20, 20, {friction = 1})
+    local jumper_y_at_30
+    for frame = 1, 120 do
+        rules_world:update(1 / 60)
+        if frame == 30 then jumper_y_at_30 = select(2, jumper:getPosition()) end
+    end
+    check('one way: a ball dropped from above lands on the platform', select(2, lander:getPosition()) < 100, select(2, lander:getPosition()))
+    check('one way: a ball thrown up from below passes through', jumper_y_at_30 < 90, jumper_y_at_30)
+    local early_dx = early_crate:getPosition() - 310
+    local late_dx = late_crate:getPosition() - 510
+    check('conveyor: crate created before the belt moves with the belt', early_dx > 30 and early_dx < 200, early_dx)
+    check('conveyor: crate created after the belt moves with the belt', late_dx > 30 and late_dx < 200, late_dx)
+    rules_world:destroy()
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

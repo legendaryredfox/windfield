@@ -300,7 +300,7 @@ end
 
 ## One-way Platforms
 
-A common problem people have with using 2D physics engines seems to be getting one-way platforms to work. Here's one way to achieve this with this library:
+A common problem people have with using 2D physics engines seems to be getting one-way platforms to work. The `one_way` option of `addCollisionClass` does it for you: `world:addCollisionClass('Platform', {one_way = {0, -1}})`. This is how to do it by hand with a `preSolve` callback, which is also a good example of what `setPreSolve` can do:
 
 ```lua
 function love.load()
@@ -493,6 +493,8 @@ Arguments:
 Settings:
 
 * `[sensor]` `(boolean)` - Makes colliders of this class sensors: they physically ignore every collision class and still generate enter, stay and exit events. Same as `ignores = {'All'}`, and it cannot be combined with `ignores`. See `Collider:setSensor` for the static body limitation
+* `[one_way]` `({nx, ny})` - Makes colliders of this class one-way platforms: they are solid only for colliders on the side the vector points to, like `{0, -1}` for the top of a platform (y grows downwards). Colliders coming from the other side, or moving away through the platform, pass through. The vector does not have to be unit length. The `enter` and `exit` events still happen while the colliders overlap. A `pre` handler runs after the check and can call `contact:setEnabled(true)` to override it
+* `[conveyor]` `(number)` - Makes colliders of this class conveyor belts. Whatever rests on them is carried at this speed in pixels per second, in the direction of the belt's surface seen from the carried collider: with the belt below, positive values move to the right. Friction on both colliders (the default is 0.2) sets how fast the carried collider reaches that speed
 * `[ignores]` `(table[string])` - The collision classes that will be physically ignored
 * `[enter]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they enter contact with each other
 * `[exit]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they exit contact with each other
