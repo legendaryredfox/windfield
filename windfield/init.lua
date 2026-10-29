@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.9.0'
+wf._VERSION = '0.10.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -385,6 +385,15 @@ function pool_methods:_store(collider)
     table.insert(self.free, collider)
 end
 
+function pool_methods:_take(collider)
+    local free = self.free
+    for i = #free, 1, -1 do
+        if free[i] == collider then table.remove(free, i) end
+    end
+    collider.pooled = nil
+    collider.body:setActive(true)
+end
+
 function pool_methods:size()
     local free = self.free
     for i = #free, 1, -1 do
@@ -398,6 +407,64 @@ function pool_methods:clear()
         self.free[i]:destroy()
         self.free[i] = nil
     end
+end
+
+local function colliderOfBody(body)
+    local first = body:getFixtures()[1]
+    local collider = first and first:getUserData()
+    if collider and not collider.destroy_pending then return collider end
+end
+
+function World:snapshot()
+    local snapshot = {}
+    for _, body in ipairs(self.box2d_world:getBodies()) do
+        local collider = colliderOfBody(body)
+        if collider then
+            local x, y = body:getPosition()
+            local vx, vy = body:getLinearVelocity()
+            snapshot[collider.id] = {
+                x = x, y = y, angle = body:getAngle(), vx = vx, vy = vy, av = body:getAngularVelocity(),
+                awake = body:isAwake(), active = body:isActive(), pooled = collider.pooled == true,
+                collision_class = collider.collision_class,
+            }
+        end
+    end
+    return snapshot
+end
+
+function World:restore(snapshot)
+    if type(snapshot) ~= 'table' then error('restore needs a snapshot made by World:snapshot.', 2) end
+    local colliders = {}
+    for _, body in ipairs(self.box2d_world:getBodies()) do
+        local collider = colliderOfBody(body)
+        if collider then colliders[collider.id] = collider end
+    end
+    local missing = {}
+    for id, state in pairs(snapshot) do
+        local collider = colliders[id]
+        if not collider then
+            missing[#missing + 1] = id
+        else
+            local body = collider.body
+            if state.pooled and not collider.pooled and collider.pool then collider.pool:release(collider)
+            elseif not state.pooled and collider.pooled and collider.pool then collider.pool:_take(collider)
+            elseif body:isActive() ~= state.active then body:setActive(state.active) end
+            if collider.collision_class ~= state.collision_class and self.collision_classes[state.collision_class] then
+                collider:setCollisionClass(state.collision_class)
+            end
+            body:setPosition(state.x, state.y)
+            body:setAngle(state.angle)
+            body:setLinearVelocity(state.vx, state.vy)
+            body:setAngularVelocity(state.av)
+            body:setAwake(state.awake)
+            collider:collisionEventsClear()
+            collider.collision_stay = {}
+            collider.enter_collision_data = {}
+            collider.exit_collision_data = {}
+        end
+    end
+    table.sort(missing)
+    return missing
 end
 
 function World:setFixedStep(dt, max_steps)

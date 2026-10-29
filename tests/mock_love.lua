@@ -79,12 +79,22 @@ local function install()
     })
 
     local body_methods = recorders({'setBullet', 'setFixedRotation', 'setGravityScale', 'setLinearDamping',
-        'setAngularDamping', 'setSleepingAllowed', 'setActive', 'setAngle', 'resetMassData', 'setAngularVelocity'})
+        'setAngularDamping', 'setSleepingAllowed', 'setActive', 'resetMassData', 'setAngularVelocity'})
     local fixture_methods = recorders({'setRestitution', 'setFriction', 'setDensity'})
 
     local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
         getAngle = function(self) return self.angle or 0 end,
+        setAngle = function(self, angle)
+            self.calls = self.calls or {}
+            self.calls.setAngle = {angle}
+            self.angle = angle
+        end,
+        getAngularVelocity = function(self)
+            local call = self.calls and self.calls.setAngularVelocity
+            return call and call[1] or 0
+        end,
+        setAwake = function(self, awake) self.asleep = not awake end,
         getMass = function(self) return self.mass or 1 end,
         applyForce = function(self, fx, fy)
             self.forces = self.forces or {}

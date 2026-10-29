@@ -395,6 +395,57 @@ function love.load()
     end)())
     recycle_world:destroy()
 
+    local function buildPile(n)
+        math.randomseed(77)
+        local w = wf.newWorld(0, 600, true)
+        w:newRectangleCollider(0, 560, 800, 40, {body_type = 'static'})
+        local list = {}
+        for i = 1, n do
+            list[i] = (i % 2 == 0) and w:newCircleCollider(100 + math.random() * 600, -math.random() * 400, 8 + math.random() * 6)
+                or w:newRectangleCollider(100 + math.random() * 600, -math.random() * 400, 14 + math.random() * 10, 14 + math.random() * 10)
+        end
+        return w, list
+    end
+    local function spread(list_a, list_b)
+        local worst = 0
+        for i = 1, #list_a do
+            local ax, ay = list_a[i]:getPosition()
+            local bx, by = list_b[i]:getPosition()
+            worst = math.max(worst, math.abs(ax - bx), math.abs(ay - by), math.abs(list_a[i]:getAngle() - list_b[i]:getAngle()))
+        end
+        return worst
+    end
+    local det_a, list_a = buildPile(60)
+    local det_b, list_b = buildPile(60)
+    for _ = 1, 300 do det_a:update(1 / 60) det_b:update(1 / 60) end
+    check('snapshot: two identical builds give identical results (replay recipe)', spread(list_a, list_b) == 0, spread(list_a, list_b))
+    det_a:destroy()
+    det_b:destroy()
+
+    local snap_world, snap_list = buildPile(5)
+    for _ = 1, 30 do snap_world:update(1 / 60) end
+    local snapshot = snap_world:snapshot()
+    local before = {}
+    for i, c in ipairs(snap_list) do before[i] = {c:getPosition()} before[i][3] = c:getAngle() end
+    for _ = 1, 30 do snap_world:update(1 / 60) end
+    local reference = {}
+    for i, c in ipairs(snap_list) do reference[i] = {c:getPosition()} end
+    check('snapshot: restore returns the exact state', #snap_world:restore(snapshot) == 0 and (function()
+        for i, c in ipairs(snap_list) do
+            local x, y = c:getPosition()
+            if x ~= before[i][1] or y ~= before[i][2] or c:getAngle() ~= before[i][3] then return false end
+        end
+        return true
+    end)())
+    for _ = 1, 30 do snap_world:update(1 / 60) end
+    local drift = 0
+    for i, c in ipairs(snap_list) do
+        local x, y = c:getPosition()
+        drift = math.max(drift, math.abs(x - reference[i][1]), math.abs(y - reference[i][2]))
+    end
+    check('snapshot: a short simple simulation after restore stays within 0.01 px of the original', drift < 0.01, drift)
+    snap_world:destroy()
+
     local fx_world = wf.newWorld(0, 0, true)
     local gust = fx_world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 300, h = 100, gravity = {100, 0}})
     local inside = fx_world:newCircleCollider(50, 50, 10)

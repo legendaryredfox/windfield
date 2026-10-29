@@ -365,6 +365,25 @@ function World:newGearJoint(joint_a, joint_b, ...) end
 ---@return love.Joint[]
 function World:getJointsOf(collider) end
 
+---@class windfield.ColliderState
+---@field x number
+---@field y number
+---@field angle number
+---@field vx number
+---@field vy number
+---@field av number Angular velocity.
+---@field awake boolean
+---@field active boolean
+---@field pooled boolean
+---@field collision_class string
+
+---@return table<string, windfield.ColliderState> snapshot Keyed by collider id.
+function World:snapshot() end
+
+---@param snapshot table<string, windfield.ColliderState>
+---@return string[] missing Sorted ids whose collider no longer exists.
+function World:restore(snapshot) end
+
 ---@param factory fun(...: any): windfield.Collider Creates a collider when no released one is available.
 ---@param reset? fun(collider: windfield.Collider, ...: any) Called for reused colliders.
 ---@return windfield.Pool

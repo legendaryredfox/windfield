@@ -825,6 +825,81 @@ test('pools skip destroyed colliders, defer release during the step and can be c
     raises(function() bad:get() end, 'factory must return a collider')
 end)
 
+test('snapshot records the state of every collider and restore writes it back', function()
+    local world = newWorld()
+    world:addCollisionClass('Crate')
+    local a = world:newRectangleCollider(10, 20, 10, 10)
+    local b = world:newCircleCollider(50, 60, 5, {collision_class = 'Crate'})
+    a:setLinearVelocity(3, 4)
+    a.body.angle = 0.5
+    a.body:setAngularVelocity(2)
+    b.body.asleep = true
+    local snapshot = world:snapshot()
+
+    truthy(snapshot[a.id] and snapshot[b.id], 'keyed by collider id')
+    eq(snapshot[a.id].x, 15, 'x')
+    eq(snapshot[a.id].y, 25, 'y')
+    eq(snapshot[a.id].angle, 0.5, 'angle')
+    eq(snapshot[a.id].vx, 3, 'vx')
+    eq(snapshot[a.id].vy, 4, 'vy')
+    eq(snapshot[a.id].av, 2, 'angular velocity')
+    eq(snapshot[a.id].awake, true, 'awake')
+    eq(snapshot[b.id].awake, false, 'asleep')
+    eq(snapshot[b.id].collision_class, 'Crate', 'class')
+    eq(snapshot[a.id].active, true, 'active')
+
+    a:setPosition(0, 0)
+    a:setLinearVelocity(0, 0)
+    a.body.angle = 9
+    a.body:setAngularVelocity(0)
+    b:setCollisionClass('Default')
+    b.body.asleep = false
+    b.collision_events.Default = {{}}
+    b.has_events = true
+    local missing = world:restore(snapshot)
+    eq(#missing, 0, 'nothing missing')
+    local x, y = a:getPosition()
+    eq(x, 15, 'restored x')
+    eq(y, 25, 'restored y')
+    eq(a.body.angle, 0.5, 'restored angle')
+    eq(select(1, a:getLinearVelocity()), 3, 'restored velocity')
+    eq(a.body:getAngularVelocity(), 2, 'restored angular velocity')
+    eq(b.collision_class, 'Crate', 'restored class')
+    eq(b.body.asleep, true, 'restored sleep state')
+    eq(next(b.collision_events), nil, 'events cleared')
+end)
+
+test('restore reports colliders that no longer exist and does not recreate them', function()
+    local world = newWorld()
+    local keep = world:newCircleCollider(1, 2, 3)
+    local gone = world:newCircleCollider(4, 5, 6)
+    local snapshot = world:snapshot()
+    gone:destroy()
+    keep:setPosition(100, 100)
+    local missing = world:restore(snapshot)
+    eq(#missing, 1, 'one missing collider')
+    eq(missing[1], gone.id, 'its id')
+    eq(select(1, keep:getPosition()), 1, 'the other one is restored')
+    eq(#world:getBodies(), 1, 'nothing is recreated')
+
+    local extra = world:newCircleCollider(7, 8, 1)
+    world:restore(snapshot)
+    eq(select(1, extra:getPosition()), 7, 'colliders that are not in the snapshot are left alone')
+    raises(function() world:restore('nope') end, 'not a snapshot')
+end)
+
+test('pooled colliders keep their parked state through a snapshot', function()
+    local world = newWorld()
+    local pool = world:newPool(function() return world:newCircleCollider(0, 0, 3) end)
+    local ball = pool:get()
+    pool:release(ball)
+    local snapshot = world:snapshot()
+    eq(snapshot[ball.id].active, false, 'inactive in the snapshot')
+    pool:get()
+    world:restore(snapshot)
+    eq(ball:isPooled(), true, 'the pool flag follows the active flag')
+end)
+
 local function forcesOn(collider)
     local sum_x, sum_y = 0, 0
     for _, force in ipairs(collider.body.forces or {}) do
