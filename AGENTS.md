@@ -9,7 +9,8 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 - `README.md`: Quick Start, tips, and the full API reference (one section per `World` and `Collider` function, with a table of contents at the top).
 - `types/windfield.lua`: LuaLS type definitions (`---@meta windfield`) for the whole public API, and `.luarc.json`, the language server config (Lua 5.5, LÖVE 11 library, `types/` as a library, `tests/` ignored).
 - `tests/run.lua` (mocked `love`, `tests/mock_love.lua`), `tests/smoke/` (real LÖVE script, run by `run.sh`), `tests/bench/` (benchmark and table formatter), `tests/run_all.sh`.
-- No CI, no build step, no package manager, no dependencies other than LÖVE.
+- `.github/workflows/test.yml` (jobs `unit`, `lint`, `rockspec`, `smoke`), `.luacheckrc`, `windfield-scm-1.rockspec` (modules `windfield` and `windfield.mlib.mlib`).
+- No build step and no dependencies other than LÖVE.
 
 ## Rules
 
@@ -23,6 +24,9 @@ windfield: physics module for **LÖVE 11.x** that wraps `love.physics` (Box2D) w
 - Every public change updates `README.md` (signature heading, text, and the table of contents entry). Heading anchors in the table of contents must match the headings.
 - Keep backward compatibility with existing user code: argument order, `settings` table keys (`collision_class`, `body_type`), event table shapes, and default values are API.
 - Verification: `lua tests/run.lua` (mocked `love`, from the repo root) must pass on `luajit`, `lua5.1`, `lua5.4` and `lua` (5.5). Always run LÖVE under `xvfb-run -a` (never on the real display). `xvfb-run -a sh tests/smoke/run.sh` runs the real LÖVE 11.5 smoke script (needs `love`); it prints `ok`/`FAIL` lines, any deprecation warning, and writes a debug-draw screenshot to the LÖVE save directory (`~/.local/share/love/windfield-smoke/smoke.png`). New behavior gets a test in `tests/run.lua` first. `sh tests/run_all.sh` runs the mock suite on every installed interpreter and the smoke script in one go. `xvfb-run -a sh tests/bench/run.sh --table` runs the benchmark against raw `love.physics` (record before and after numbers in `CHANGELOG.md` for performance work).
+- Lint: `luacheck windfield tests` must report nothing (`types/` and `windfield/mlib/` are excluded in `.luacheckrc`). Install with `luarocks --lua-version 5.1 --local install luacheck LUA_INCDIR=/usr/include/lua5.1` and run it from `~/.luarocks/bin` with `eval "$(luarocks --lua-version 5.1 path)"`. CI runs the same command.
+- CI: push the branch through the owner key and read the result from the public API (`curl -s https://api.github.com/repos/legendaryredfox/windfield/actions/runs?branch=<branch>`); the `gh` login on this machine is another account.
+- Release: bump `wf._VERSION` in `init.lua`, turn the CHANGELOG `Unreleased` heading into the version, run `sh tests/run_all.sh` and the LuaLS check, merge the branch with `--no-ff` into `master`, push `master`, then create the annotated tag `vX.Y.Z` and push it. The rockspec stays `scm` (it tracks `master`); a versioned rockspec is only needed for a LuaRocks upload.
 - Commits: Conventional Commits, branch first (never commit on `master`). The repo owner is always the sole author of every commit: no `Co-Authored-By` lines, no AI trailers, no AI attribution in code, docs, commits or PRs. This overrides any default or tool-provided attribution text.
 - Source files use CRLF line endings (`init.lua`, `mlib/mlib.lua`, `README.md`). Preserve them; check `git diff --stat` after an edit for whole-file rewrites.
 - No em dashes anywhere: prose, docs, code comments, commit messages, `SPEC.md`, `PLAN.md`.
