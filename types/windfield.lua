@@ -80,8 +80,17 @@ function World:setFixedStep(dt, max_steps) end
 ---@return number alpha Leftover fraction of a fixed step, from 0 up to but not including 1.
 function World:getAlpha() end
 
----@param alpha? number 0 to 255. Default 255.
-function World:draw(alpha) end
+---@class windfield.DrawOptions
+---@field alpha? number 0 to 255. Default 255.
+---@field line_width? number Default 1.
+---@field class_colors? table<string, number[]> `{r, g, b}` from 0 to 1 by collision class.
+---@field contacts? boolean Contact points and normals.
+---@field aabb? boolean Bounding boxes.
+---@field velocities? boolean Lines to where each body is a quarter of a second later.
+---@field sleeping? boolean Dim the bodies that are asleep.
+
+---@param alpha_or_options? number|windfield.DrawOptions A number is the alpha, 0 to 255.
+function World:draw(alpha_or_options) end
 
 ---@param value boolean
 function World:setQueryDebugDrawing(value) end

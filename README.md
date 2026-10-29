@@ -20,7 +20,7 @@
       * [step](#stepdt)
       * [setFixedStep](#setfixedstepdt-max_steps)
       * [getAlpha](#getalpha)
-      * [draw](#drawalpha)
+      * [draw](#drawalpha_or_options)
       * [destroy](#destroy)
       * [addCollisionClass](#addcollisionclasscollision_class_name-collision_class)
       * [Collider settings](#collider-settings)
@@ -453,18 +453,28 @@ Returns:
 
 ---
 
-#### `:draw(alpha)`
+#### `:draw(alpha_or_options)`
 
-Draws the world, drawing all colliders, joints and world queries (for debugging purposes).
+Draws the world, drawing all colliders, joints and world queries (for debugging purposes). The line width is set to 1 while drawing, so the width you use for your own graphics does not leak into the debug drawing, and your previous line width and color are restored afterwards.
 
 ```lua
 world:draw() -- default drawing
 world:draw(128) -- semi transparent drawing
+world:draw({alpha = 128, line_width = 2, class_colors = {Enemy = {1, 0.3, 0.3}}, contacts = true})
 ```
 
 Arguments:
 
-* `alpha=255` `(number)` - The optional alpha value to use when drawing, from 0 to 255, defaults to 255
+* `alpha_or_options=255` `(number or table)` - A number is the alpha value, from 0 to 255. A table can have:
+  * `[alpha=255]` `(number)` - The alpha value, from 0 to 255
+  * `[line_width=1]` `(number)` - The line width used for every shape
+  * `[class_colors]` `(table)` - Colors by collision class name, each `{r, g, b}` with components from 0 to 1. Classes that are not listed keep the default color
+  * `[contacts=false]` `(boolean)` - Draws a circle on every contact point of touching colliders and a line along the contact normal
+  * `[aabb=false]` `(boolean)` - Draws the bounding box of every shape
+  * `[velocities=false]` `(boolean)` - Draws a line from each moving body to where it would be a quarter of a second later
+  * `[sleeping=false]` `(boolean)` - Draws the bodies that are asleep with 40 percent of the alpha
+
+An unknown key in the table raises an error. Each collider is drawn once; the solid and sensor fixtures of a collider share the same shape.
 
 ---
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `World:draw` accepts an options table: `alpha`, `line_width`, `class_colors`, `contacts`, `aabb`, `velocities` and `sleeping`.
+- CI workflow, `.luacheckrc` and a rockspec.
+
+### Changed
+
+- `World:draw` sets the line width to 1 while drawing and restores the previous one. Each collider is drawn once instead of once per fixture.
+
 ## 0.2.0
 
 Core features: settings keys, fixed timestep, sensors, raycast, point queries, collider filter, one-way platforms and conveyors, LuaLS types. Source compatible except for the changes listed under Changed.

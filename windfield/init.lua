@@ -202,33 +202,96 @@ function World:_dispatchCollisionEvents()
     end
 end
 
-function World:draw(alpha)
+local draw_options = {alpha = true, class_colors = true, line_width = true, contacts = true, aabb = true, velocities = true, sleeping = true}
+
+local function drawFixture(body, fixture)
+    local shape = fixture:getShape()
+    local shape_type = shape:type()
+    if shape_type == 'PolygonShape' then
+        love.graphics.polygon('line', body:getWorldPoints(shape:getPoints()))
+    elseif shape_type == 'EdgeShape' or shape_type == 'ChainShape' then
+        local points = {body:getWorldPoints(shape:getPoints())}
+        for i = 1, #points, 2 do
+            if i < #points-2 then love.graphics.line(points[i], points[i+1], points[i+2], points[i+3]) end
+        end
+    elseif shape_type == 'CircleShape' then
+        local body_x, body_y = body:getPosition()
+        local shape_x, shape_y = shape:getPoint()
+        love.graphics.circle('line', body_x + shape_x, body_y + shape_y, shape:getRadius(), 360)
+    end
+end
+
+local function drawContacts(world, alpha)
+    love.graphics.setColor(222/255, 64/255, 64/255, alpha)
+    for _, contact in ipairs(world.box2d_world:getContacts()) do
+        if contact:isTouching() then
+            local nx, ny = contact:getNormal()
+            local x1, y1, x2, y2 = contact:getPositions()
+            if x1 then
+                love.graphics.circle('line', x1, y1, 3)
+                love.graphics.line(x1, y1, x1 + nx * 12, y1 + ny * 12)
+            end
+            if x2 then love.graphics.circle('line', x2, y2, 3) end
+        end
+    end
+end
+
+function World:draw(options)
+    if type(options) ~= 'table' then options = {alpha = options} end
+    for key in pairs(options) do
+        if not draw_options[key] then error('Unknown draw option ' .. tostring(key) .. '.', 2) end
+    end
     -- get the current color values to reapply
     local r, g, b, a = love.graphics.getColor()
+    local line_width = love.graphics.getLineWidth()
     -- alpha value is optional, 0-255
-    alpha = (alpha or 255) / 255
+    local alpha = (options.alpha or 255) / 255
+    local class_colors = options.class_colors
+    love.graphics.setLineWidth(options.line_width or 1)
+
     -- Colliders debug
-    love.graphics.setColor(222/255, 222/255, 222/255, alpha)
     local bodies = self.box2d_world:getBodies()
     for _, body in ipairs(bodies) do
-        local fixtures = body:getFixtures()
-        for _, fixture in ipairs(fixtures) do
-            if fixture:getShape():type() == 'PolygonShape' then
-                love.graphics.polygon('line', body:getWorldPoints(fixture:getShape():getPoints()))
-            elseif fixture:getShape():type() == 'EdgeShape' or fixture:getShape():type() == 'ChainShape' then
-                local points = {body:getWorldPoints(fixture:getShape():getPoints())}
-                for i = 1, #points, 2 do
-                    if i < #points-2 then love.graphics.line(points[i], points[i+1], points[i+2], points[i+3]) end
-                end
-            elseif fixture:getShape():type() == 'CircleShape' then
-                local body_x, body_y = body:getPosition()
-                local shape_x, shape_y = fixture:getShape():getPoint()
-                local r = fixture:getShape():getRadius()
-                love.graphics.circle('line', body_x + shape_x, body_y + shape_y, r, 360)
+        local body_alpha = alpha
+        if options.sleeping and not body:isAwake() then body_alpha = alpha * 0.4 end
+        for _, fixture in ipairs(body:getFixtures()) do
+            local collider = fixture:getUserData()
+            if not (collider and fixture:isSensor()) then
+                local color = class_colors and collider and class_colors[collider.collision_class]
+                if color then love.graphics.setColor(color[1], color[2], color[3], body_alpha)
+                else love.graphics.setColor(222/255, 222/255, 222/255, body_alpha) end
+                drawFixture(body, fixture)
             end
         end
     end
     love.graphics.setColor(1, 1, 1, alpha)
+
+    if options.aabb then
+        love.graphics.setColor(128/255, 128/255, 128/255, alpha)
+        for _, body in ipairs(bodies) do
+            for _, fixture in ipairs(body:getFixtures()) do
+                if not (fixture:getUserData() and fixture:isSensor()) then
+                    for child = 1, fixture:getShape():getChildCount() do
+                        local x1, y1, x2, y2 = fixture:getBoundingBox(child)
+                        love.graphics.rectangle('line', x1, y1, x2 - x1, y2 - y1)
+                    end
+                end
+            end
+        end
+    end
+
+    if options.velocities then
+        love.graphics.setColor(64/255, 222/255, 64/255, alpha)
+        for _, body in ipairs(bodies) do
+            local vx, vy = body:getLinearVelocity()
+            if body:getType() ~= 'static' and (vx ~= 0 or vy ~= 0) then
+                local x, y = body:getPosition()
+                love.graphics.line(x, y, x + vx * 0.25, y + vy * 0.25)
+            end
+        end
+    end
+
+    if options.contacts then drawContacts(self, alpha) end
 
     -- Joint debug
     love.graphics.setColor(222/255, 128/255, 64/255, alpha)
@@ -260,6 +323,7 @@ function World:draw(alpha)
             table.remove(self.query_debug_draw, i)
         end
     end
+    love.graphics.setLineWidth(line_width)
     love.graphics.setColor(r, g, b, a)
 end
 

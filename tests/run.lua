@@ -881,6 +881,102 @@ test('draw uses 0-1 colors and maps the 0-255 alpha argument', function()
     end
 end)
 
+local function drawCalls(world, options)
+    love.graphics.calls = {}
+    world:draw(options)
+    return love.graphics.calls
+end
+
+local function callsNamed(calls, name)
+    local out = {}
+    for _, call in ipairs(calls) do
+        if call.name == name then out[#out + 1] = call end
+    end
+    return out
+end
+
+test('draw options: alpha, line width and restoring the previous line width', function()
+    local world = newWorld()
+    world:newRectangleCollider(0, 0, 10, 10)
+    love.graphics.setLineWidth(5)
+    local calls = drawCalls(world, {alpha = 51})
+    local widths = callsNamed(calls, 'setLineWidth')
+    eq(widths[1][1], 1, 'default line width while drawing')
+    eq(widths[#widths][1], 5, 'previous line width restored')
+    for _, color in ipairs(callsNamed(calls, 'setColor')) do
+        if #color == 4 and color[4] ~= 1 then eq(color[4], 51 / 255, 'alpha from the options table') end
+    end
+    calls = drawCalls(world, {line_width = 3})
+    eq(callsNamed(calls, 'setLineWidth')[1][1], 3, 'custom line width')
+    eq(love.graphics.getLineWidth(), 5, 'restored after the custom width')
+    love.graphics.setLineWidth(1)
+    raises(function() world:draw({alhpa = 1}) end, 'unknown option')
+end)
+
+test('draw draws each collider once and colors it by class', function()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    world:newRectangleCollider(0, 0, 10, 10, {collision_class = 'Wall'})
+    world:newRectangleCollider(50, 0, 10, 10)
+    local calls = drawCalls(world, {class_colors = {Wall = {1, 0, 0}}})
+    eq(#callsNamed(calls, 'polygon'), 2, 'one polygon per collider, not per fixture')
+    local wall_color_before_polygon = false
+    for i, call in ipairs(calls) do
+        if call.name == 'setColor' and call[1] == 1 and call[2] == 0 and call[3] == 0 then
+            wall_color_before_polygon = calls[i + 1].name == 'polygon'
+        end
+    end
+    truthy(wall_color_before_polygon, 'the class color is set right before its shape')
+end)
+
+test('draw shows contacts, bounding boxes, velocities and sleeping bodies', function()
+    local world = newWorld()
+    local box = world:newRectangleCollider(0, 0, 10, 10)
+    box:setLinearVelocity(40, 0)
+    local sleeper = world:newRectangleCollider(100, 0, 10, 10)
+    sleeper.body.asleep = true
+    local ground = world:newRectangleCollider(0, 50, 10, 10, {body_type = 'static'})
+    world.box2d_world.contacts = {
+        love._newContact({nx = 0, ny = 1, positions = {3, 4, 5, 6}}),
+        love._newContact({nx = 0, ny = 1, positions = {9, 9}, touching = false}),
+    }
+
+    local plain = drawCalls(world)
+    eq(#callsNamed(plain, 'rectangle'), 0, 'no bounding boxes by default')
+    eq(#callsNamed(plain, 'line'), 0, 'no velocity or contact lines by default')
+
+    local calls = drawCalls(world, {aabb = true})
+    eq(#callsNamed(calls, 'rectangle'), 3, 'one box per solid fixture')
+    local x1, y1, x2, y2 = box.fixture:getBoundingBox()
+    local found = false
+    for _, call in ipairs(callsNamed(calls, 'rectangle')) do
+        if call[2] == x1 and call[3] == y1 and call[4] == x2 - x1 and call[5] == y2 - y1 then found = true end
+    end
+    truthy(found, 'bounding box of the box collider')
+
+    calls = drawCalls(world, {velocities = true})
+    local lines = callsNamed(calls, 'line')
+    eq(#lines, 1, 'only the moving body gets a velocity line')
+    eq(lines[1][1], 5, 'line starts at the body center x')
+    eq(lines[1][3], 5 + 40 * 0.25, 'line ends one quarter second ahead')
+
+    calls = drawCalls(world, {contacts = true})
+    eq(#callsNamed(calls, 'circle'), 2, 'two contact points of the touching contact')
+    eq(#callsNamed(calls, 'line'), 1, 'one normal line')
+
+    calls = drawCalls(world, {sleeping = true, alpha = 255})
+    local awake_alpha, asleep_alpha
+    for i, call in ipairs(calls) do
+        if call.name == 'polygon' then
+            local color = calls[i - 1]
+            if call[1] == 'line' and not asleep_alpha and color.name == 'setColor' and color[4] < 1 then asleep_alpha = color[4] end
+            if color.name == 'setColor' and color[4] == 1 then awake_alpha = 1 end
+        end
+    end
+    truthy(awake_alpha == 1, 'awake bodies at full alpha')
+    truthy(asleep_alpha and asleep_alpha < 1, 'sleeping bodies are dimmer')
+end)
+
 test('a failing constructor leaves no body behind', function()
     local world = newWorld()
     raises(function() world:newChainCollider({10, 10, 10, 20, 20, 20}, nil) end, 'bad chain')
