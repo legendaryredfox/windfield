@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
+
+Motion quality and origin shifting. Purely additive.
 
 ### Added
 
