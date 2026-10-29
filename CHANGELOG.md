@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+Joint constructors and constraint builders. Purely additive.
 
 ### Added
 
