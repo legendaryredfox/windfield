@@ -69,6 +69,12 @@ function wf.newWorld(xg, yg, sleep, options) end
 ---@field x2? number Second contact point x.
 ---@field y2? number Second contact point y.
 
+---@class windfield.Pool
+---@field get fun(self: windfield.Pool, ...: any): windfield.Collider
+---@field release fun(self: windfield.Pool, collider: windfield.Collider)
+---@field size fun(self: windfield.Pool): integer
+---@field clear fun(self: windfield.Pool)
+
 ---@class windfield.Handle
 ---@field remove fun() Stops the callback from running.
 
@@ -359,6 +365,11 @@ function World:newGearJoint(joint_a, joint_b, ...) end
 ---@return love.Joint[]
 function World:getJointsOf(collider) end
 
+---@param factory fun(...: any): windfield.Collider Creates a collider when no released one is available.
+---@param reset? fun(collider: windfield.Collider, ...: any) Called for reused colliders.
+---@return windfield.Pool
+function World:newPool(factory, reset) end
+
 ---@class windfield.Assembly
 ---@field parts table<string|integer, windfield.Collider>
 ---@field joints love.Joint[]
@@ -432,6 +443,9 @@ local Collider = {}
 
 ---@param collision_class_name string
 function Collider:setCollisionClass(collision_class_name) end
+
+---@return boolean
+function Collider:isPooled() end
 
 ---@param sensor boolean
 function Collider:setSensor(sensor) end

@@ -92,6 +92,10 @@ local function install()
         end,
         getContacts = function(self) return self.contacts or {} end,
         getJoints = function(self) return self.joints end,
+        isActive = function(self)
+            local call = self.calls and self.calls.setActive
+            return not (call and call[1] == false)
+        end,
         getType = function(self) return self.body_type or 'dynamic' end,
         isAwake = function(self) return not self.asleep end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,

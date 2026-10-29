@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.8.0'
+wf._VERSION = '0.9.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -109,6 +109,7 @@ function World.new(wf, xg, yg, sleep, options)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.release_queue = {}
     self.one_way = {}
     self.conveyors = {}
     self.has_contact_rules = false
@@ -173,6 +174,9 @@ function World:update(dt)
     local queue = self.destroy_queue
     for i = 1, #queue do queue[i]:_destroy() end
     for i = #queue, 1, -1 do queue[i] = nil end
+    local releases = self.release_queue
+    for i = 1, #releases do releases[i][1]:_store(releases[i][2]) end
+    for i = #releases, 1, -1 do releases[i] = nil end
     if self.has_collision_handlers then self:_dispatchCollisionEvents() end
 end
 
@@ -333,6 +337,69 @@ function World:_applyEffector(effector, collider, body, gx, gy)
     if fx ~= 0 or fy ~= 0 then body:applyForce(fx, fy) end
 end
 
+local pool_methods = {}
+local pool_metatable = {__index = pool_methods}
+
+function World:newPool(factory, reset)
+    if type(factory) ~= 'function' then error('A pool needs a factory function.', 2) end
+    if reset ~= nil and type(reset) ~= 'function' then error('The pool reset must be a function or nil.', 2) end
+    return setmetatable({world = self, factory = factory, reset = reset, free = {}}, pool_metatable)
+end
+
+function pool_methods:get(...)
+    local free = self.free
+    while #free > 0 do
+        local collider = table.remove(free)
+        if collider.body then
+            collider.pooled = nil
+            collider.body:setActive(true)
+            if self.reset then self.reset(collider, ...) end
+            return collider
+        end
+    end
+    local collider = self.factory(...)
+    if type(collider) ~= 'table' or not collider.body then error('The pool factory must return a collider.', 2) end
+    return collider
+end
+
+function pool_methods:release(collider)
+    if collider.pooled or not collider.body then return end
+    collider.pooled = true
+    collider.pool = self
+    if self.world.stepping then
+        table.insert(self.world.release_queue, {self, collider})
+    else
+        self:_store(collider)
+    end
+end
+
+function pool_methods:_store(collider)
+    if not collider.body then return end
+    collider.body:setActive(false)
+    collider.body:setLinearVelocity(0, 0)
+    collider.body:setAngularVelocity(0)
+    collider:collisionEventsClear()
+    collider.collision_stay = {}
+    collider.enter_collision_data = {}
+    collider.exit_collision_data = {}
+    table.insert(self.free, collider)
+end
+
+function pool_methods:size()
+    local free = self.free
+    for i = #free, 1, -1 do
+        if not free[i].body then table.remove(free, i) end
+    end
+    return #free
+end
+
+function pool_methods:clear()
+    for i = #self.free, 1, -1 do
+        self.free[i]:destroy()
+        self.free[i] = nil
+    end
+end
+
 function World:setFixedStep(dt, max_steps)
     max_steps = max_steps or 5
     if type(dt) ~= 'number' or dt <= 0 then error('The fixed step must be a positive number.') end
@@ -442,6 +509,7 @@ local function drawContacts(world, alpha)
 end
 
 local function drawBody(body, options, alpha)
+    if not body:isActive() then return end
     local fixtures = body:getFixtures()
     local first = fixtures[1]
     local first_collider = first and first:getUserData()
@@ -1980,6 +2048,10 @@ local function collectEvents(collider, other_collision_class_name, collision_typ
         end
     end
     return out
+end
+
+function Collider:isPooled()
+    return self.pooled == true
 end
 
 function Collider:getGround(max_slope)
