@@ -16,6 +16,7 @@
 * [Documentation](#documentation)
    * [World](#world)
       * [newWorld](#newworldxg-yg-sleep-options)
+      * [newTimer](#newtimerduration)
       * [update](#updatedt)
       * [step](#stepdt)
       * [setFixedStep](#setfixedstepdt-max_steps)
@@ -61,6 +62,9 @@
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
       * [setSensor](#setsensorsensor)
       * [isSensor](#issensor)
+      * [getGround](#getgroundmax_slope)
+      * [moveKinematic](#movekinematicx-y-angle-dt)
+      * [driveTo](#drivetox-y-angle-strength)
       * [setInterpolated](#setinterpolatedinterpolated)
       * [isInterpolated](#isinterpolated)
       * [getRenderPosition](#getrenderposition)
@@ -394,6 +398,37 @@ Returns:
 
 * `World` `(table)` - the World object, containing all attributes and methods defined below as well as all of a [box2d World](https://love2d.org/wiki/World)
 
+
+---
+
+#### `.newTimer(duration)`
+
+Creates a countdown timer for the small grace periods of character controls: coyote time (still allowed to jump a moment after leaving a ledge) and jump buffering (a jump pressed just before landing still counts).
+
+```lua
+coyote = wf.newTimer(0.1)
+jump_buffer = wf.newTimer(0.12)
+
+function love.update(dt)
+    coyote:update(dt)
+    jump_buffer:update(dt)
+    if player:getGround().grounded then coyote:start() end
+    if jump_pressed then jump_buffer:start() end
+    if coyote:isActive() and jump_buffer:consume() then
+        coyote:consume()
+        player:applyLinearImpulse(0, -400)
+    end
+    world:update(dt)
+end
+```
+
+Arguments:
+
+* `duration` `(number)` - How long the timer stays active after `start`, in seconds, greater than zero
+
+Returns:
+
+* `timer` `(table)` - With these methods: `start([duration])` (restart the countdown, optionally with another duration), `update(dt)`, `isActive()` and `consume()` (returns `true` and stops the timer when it was active)
 
 ---
 
@@ -1285,6 +1320,69 @@ Returns whether the collider is a sensor, either through `setSensor`, the `senso
 Returns:
 
 * `sensor` `(boolean)` - The sensor state
+
+---
+
+#### `:getGround(max_slope)`
+
+Looks at the contacts of the collider and returns the ground under it. "Under" is relative to gravity: the direction opposite to `world:getGravity()`, or up the screen (negative y) when the world has no gravity. Contacts with sensors, contacts that are not touching and contacts disabled by a one-way platform or the collider filter are ignored. When several contacts qualify the flattest one is returned.
+
+```lua
+local ground = player:getGround()
+if ground.grounded then
+    print(ground.collider.collision_class, math.deg(ground.angle))
+end
+```
+
+Arguments:
+
+* `[max_slope=math.rad(50)]` `(number)` - The steepest slope, in radians from flat, that still counts as ground
+
+Returns:
+
+* `ground` `(table)` - `{grounded = false}` when there is no ground. Otherwise `grounded = true` and
+  * `nx`, `ny` `(number)` - The unit normal of the ground, pointing from the ground to this collider
+  * `angle` `(number)` - The slope in radians, 0 for flat ground
+  * `collider` `(Collider)` - The collider that supports this one
+  * `x`, `y` `(number)` - The first contact point
+  * `contact` `(Contact)` - The LÖVE contact, only valid until the next physics step
+
+---
+
+#### `:moveKinematic(x, y, angle, dt)`
+
+Sets the velocities of the body so that it arrives at a pose after `dt` seconds. Meant for kinematic bodies such as moving platforms, which the physics step then moves exactly, pushing whatever they touch. Call it before `world:update(dt)` every frame with the same `dt`.
+
+```lua
+platform:moveKinematic(target_x, target_y, math.pi / 2, dt)
+world:update(dt)
+```
+
+Arguments:
+
+* `x` `(number)` - The target x of the body center
+* `y` `(number)` - The target y of the body center
+* `[angle]` `(number)` - The target angle in radians; the body turns the short way round. `nil` leaves the rotation alone
+* `dt` `(number)` - The time to get there, greater than zero
+
+Box2D moves a body at most 2 meters per step (64 pixels at the default meter) and turns it at most a quarter turn, so a farther target is approached over several steps. Use `setPosition` to teleport.
+
+---
+
+#### `:driveTo(x, y, angle, strength)`
+
+Soft keying: steers the body toward a pose with a velocity proportional to the remaining distance, so it follows the pose but can still be pushed by the world. Use it for ragdoll limbs that follow an animation, or for objects that follow the mouse. Call it every frame.
+
+```lua
+limb:driveTo(animation_x, animation_y, animation_angle, 10)
+```
+
+Arguments:
+
+* `x` `(number)` - The target x of the body center
+* `y` `(number)` - The target y of the body center
+* `[angle]` `(number)` - The target angle in radians. `nil` leaves the rotation alone
+* `strength` `(number)` - The gain in 1/second. The remaining distance shrinks by about 63 percent every `1/strength` seconds; keep `strength * dt` below 1 to avoid overshooting
 
 ---
 

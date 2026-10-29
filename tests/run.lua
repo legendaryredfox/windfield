@@ -586,6 +586,101 @@ test('shapeCast validates its arguments and releases its fixtures', function()
     eq(#world.query_body:getFixtures(), 0, 'query fixtures are destroyed')
 end)
 
+local function touch(body, fixture_a, fixture_b, nx, ny, extra)
+    local contact = love._newContact({nx = nx, ny = ny, positions = {0, 0}, fixtures = {fixture_a, fixture_b}})
+    for key, value in pairs(extra or {}) do contact[key] = value end
+    body.contacts = body.contacts or {}
+    body.contacts[#body.contacts + 1] = contact
+    return contact
+end
+
+test('getGround reports the supporting contact, its normal and slope', function()
+    local world = newWorld()
+    world:setGravity(0, 500)
+    local player = world:newCircleCollider(0, 0, 5)
+    local floor = world:newRectangleCollider(0, 10, 100, 10, {body_type = 'static'})
+    eq(player:getGround().grounded, false, 'no contacts')
+
+    touch(player.body, floor.fixture, player.fixture, 0, -1)
+    local ground = player:getGround()
+    eq(ground.grounded, true, 'standing on the floor')
+    eq(ground.nx, 0, 'normal x')
+    eq(ground.ny, -1, 'normal y points from the ground to the player')
+    near(ground.angle, 0, 1e-9, 'flat angle')
+    eq(ground.collider, floor, 'ground collider')
+
+    player.body.contacts = {}
+    touch(player.body, player.fixture, floor.fixture, 0, 1)
+    eq(player:getGround().ny, -1, 'normal flips when the player is fixture A')
+
+    player.body.contacts = {}
+    touch(player.body, floor.fixture, player.fixture, math.sin(math.rad(30)), -math.cos(math.rad(30)))
+    near(player:getGround().angle, math.rad(30), 1e-9, 'slope angle')
+    eq(player:getGround(math.rad(20)).grounded, false, 'slope steeper than max_slope')
+
+    player.body.contacts = {}
+    local wall = world:newRectangleCollider(50, 0, 10, 10, {body_type = 'static'})
+    touch(player.body, wall.fixture, player.fixture, 1, 0)
+    eq(player:getGround().grounded, false, 'a wall is not ground')
+    touch(player.body, floor.fixture, player.fixture, 0, -1, {touching = false})
+    touch(player.body, floor.fixture, player.fixture, 0, -1, {enabled = false})
+    touch(player.body, floor.sensors.main, player.fixture, 0, -1)
+    eq(player:getGround().grounded, false, 'untouching, disabled and sensor contacts are skipped')
+
+    touch(player.body, floor.fixture, player.fixture, math.sin(math.rad(40)), -math.cos(math.rad(40)))
+    touch(player.body, floor.fixture, player.fixture, 0, -1)
+    eq(player:getGround().ny, -1, 'the flattest contact wins')
+
+    world:setGravity(0, 0)
+    player.body.contacts = {}
+    touch(player.body, floor.fixture, player.fixture, 0, -1)
+    eq(player:getGround().grounded, true, 'without gravity up is negative y')
+    world:setGravity(0, -500)
+    eq(player:getGround().grounded, false, 'upside down gravity makes the floor a ceiling')
+end)
+
+test('moveKinematic and driveTo set velocities toward a pose', function()
+    local world = newWorld()
+    local body = world:newRectangleCollider(0, 0, 10, 10, {body_type = 'kinematic'})
+    local x, y = body:getPosition()
+    body.body.angle = 3
+    body:moveKinematic(x + 60, y + 120, -3, 0.5)
+    local vx, vy = body:getLinearVelocity()
+    near(vx, 120, 1e-9, 'vx reaches the target in dt')
+    near(vy, 240, 1e-9, 'vy')
+    near(body.body.calls.setAngularVelocity[1], (2 * math.pi - 6) / 0.5, 1e-9, 'angular velocity takes the short way round')
+    raises(function() body:moveKinematic(0, 0, 0, 0) end, 'zero dt')
+
+    body.body.angle = 0
+    body:setPosition(10, 20)
+    body:driveTo(40, 80, 1, 4)
+    vx, vy = body:getLinearVelocity()
+    near(vx, 120, 1e-9, 'driveTo vx is gain times error')
+    near(vy, 240, 1e-9, 'driveTo vy')
+    near(body.body.calls.setAngularVelocity[1], 4, 1e-9, 'driveTo angular velocity')
+    body:driveTo(40, 80, nil, 4)
+    near(body.body.calls.setAngularVelocity[1], 4, 1e-9, 'a missing angle leaves the rotation alone')
+end)
+
+test('timers count down for coyote time and jump buffering', function()
+    local timer = wf.newTimer(0.1)
+    eq(timer:isActive(), false, 'idle at first')
+    timer:start()
+    eq(timer:isActive(), true, 'active after start')
+    timer:update(0.06)
+    eq(timer:isActive(), true, 'still active')
+    timer:update(0.06)
+    eq(timer:isActive(), false, 'expired')
+    timer:start()
+    eq(timer:consume(), true, 'consume while active')
+    eq(timer:isActive(), false, 'consume clears the timer')
+    eq(timer:consume(), false, 'nothing to consume')
+    timer:start(0.5)
+    timer:update(0.3)
+    eq(timer:isActive(), true, 'start takes a duration override')
+    raises(function() wf.newTimer(0) end, 'zero duration')
+end)
+
 test('queryShape validates the shape definition and releases its fixtures', function()
     local world = newWorld()
     raises(function() world:queryShape({type = 'triangle'}, 0, 0) end, 'unknown type')
