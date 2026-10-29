@@ -391,6 +391,10 @@ function World:getJointsOf(collider) end
 ---@field pooled boolean
 ---@field collision_class string
 
+---@param dx number Everything moves by dx.
+---@param dy number
+function World:shiftOrigin(dx, dy) end
+
 ---@return table<string, windfield.ColliderState> snapshot Keyed by collider id.
 function World:snapshot() end
 

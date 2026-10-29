@@ -51,6 +51,7 @@
       * [newBridge](#newbridgedef)
       * [newRagdoll](#newragdolldef)
       * [newPool](#newpoolfactory-reset)
+      * [shiftOrigin](#shiftoriginx-y)
       * [snapshot](#snapshot)
       * [restore](#restoresnapshot)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
@@ -1315,6 +1316,27 @@ Returns:
   * `clear()` - Destroys the released colliders that are waiting
 
 Colliders that other colliders were touching send them an `exit` event when they are released. As with creating colliders, do not call `get` from the `pre` and `post` callbacks; use `world:onEnter` handlers or code after `update`.
+
+---
+
+#### `:shiftOrigin(dx, dy)`
+
+Moves everything in the world by `dx, dy`: every body, joint and the regions of effectors, so you can recenter a very large world around the player without changing how it plays. Move the camera by the same amount.
+
+```lua
+if math.abs(player_x) > 50000 then
+    world:shiftOrigin(-player_x, 0)
+    camera_x = camera_x - player_x
+    player_x = 0
+end
+```
+
+Arguments:
+
+* `dx` `(number)` - How far everything moves along x
+* `dy` `(number)` - How far everything moves along y
+
+LÖVE keeps positions as 32 bit floats in meters, so the further a body is from the origin the coarser its position gets: in the tests the physics itself stayed correct up to 8,000,000 pixels from the origin, but positions had a resolution of about half a pixel there. The `translateOrigin` of LÖVE is available on the world as before (its sign is the opposite: it subtracts), but it knows nothing about the effector regions, the render interpolation snapshots and the query drawings that windfield keeps, so use `shiftOrigin`. Positions you saved yourself and snapshots from `world:snapshot` are not changed. Call it outside the physics callbacks.
 
 ---
 
