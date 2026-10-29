@@ -159,6 +159,66 @@ test('unknown settings keys raise and leave no body behind', function()
     eq(#world:getBodies(), before, 'bodies')
 end)
 
+test('step runs fixed updates from accumulated time', function()
+    local world = newWorld()
+    local updates = 0
+    world.box2d_world.step_hook = function() updates = updates + 1 end
+    eq(world:step(1 / 30), 2, 'steps for 1/30')
+    eq(updates, 2, 'updates')
+    eq(world:step(1 / 120), 0, 'half a step')
+    eq(world:getAlpha(), 0.5, 'alpha after half a step')
+    eq(world:step(1 / 120), 1, 'second half')
+    eq(updates, 3, 'updates after halves')
+end)
+
+test('step caps the number of updates and drops the excess time', function()
+    local world = newWorld()
+    local updates = 0
+    world.box2d_world.step_hook = function() updates = updates + 1 end
+    eq(world:step(10), 5, 'default max_steps')
+    eq(world:step(0), 0, 'accumulator was clamped')
+    truthy(world:getAlpha() < 1, 'alpha below one')
+    world:setFixedStep(1 / 30, 2)
+    updates = 0
+    eq(world:step(1), 2, 'custom max_steps')
+    eq(world:step(1 / 30), 1, 'custom fixed step')
+    raises(function() world:setFixedStep(0, 5) end, 'zero step')
+    raises(function() world:setFixedStep(1 / 60, 0) end, 'zero max_steps')
+end)
+
+test('interpolated colliders render between the last two fixed steps', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    local other = world:newCircleCollider(0, 0, 5)
+    world.box2d_world.step_hook = function()
+        collider.body.x = collider.body.x + 10
+        collider.body.angle = (collider.body.angle or 0) + 1
+        other.body.x = other.body.x + 10
+    end
+    collider:setInterpolated(true)
+    truthy(collider:isInterpolated(), 'isInterpolated')
+    world:step(1 / 60)
+    local x = collider:getRenderPosition()
+    eq(x, 0, 'alpha 0 returns the previous position')
+    eq(collider:getRenderAngle(), 0, 'alpha 0 returns the previous angle')
+    world:step(1 / 60 + 1 / 120)
+    local rx = collider:getRenderPosition()
+    eq(rx, 15, 'half way between 10 and 20')
+    eq(collider:getRenderAngle(), 1.5, 'half way between angles')
+    eq(select(1, other:getRenderPosition()), 20, 'colliders that are not interpolated render at their position')
+    collider:setInterpolated(false)
+    eq(select(1, collider:getRenderPosition()), 20, 'interpolation off')
+end)
+
+test('destroying an interpolated collider releases it', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    collider:setInterpolated(true)
+    collider:destroy()
+    eq(next(world.interpolated), nil, 'interpolated set')
+    world:step(1 / 60)
+end)
+
 test('ignores produce category and mask entries', function()
     local world = newWorld()
     world:addCollisionClass('Player')

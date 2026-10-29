@@ -82,6 +82,10 @@ function World.new(wf, xg, yg, sleep, options)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.fixed_dt = 1/60
+    self.max_steps = 5
+    self.accumulator = 0
+    self.interpolated = {}
     self.query_results = {}
     self.query_callback = function(fixture)
         local collider = fixture:getUserData()
@@ -123,6 +127,31 @@ function World:update(dt)
     for i = 1, #queue do queue[i]:_destroy() end
     for i = #queue, 1, -1 do queue[i] = nil end
     if self.has_collision_handlers then self:_dispatchCollisionEvents() end
+end
+
+function World:setFixedStep(dt, max_steps)
+    max_steps = max_steps or 5
+    if type(dt) ~= 'number' or dt <= 0 then error('The fixed step must be a positive number.') end
+    if type(max_steps) ~= 'number' or max_steps < 1 then error('max_steps must be at least 1.') end
+    self.fixed_dt = dt
+    self.max_steps = max_steps
+end
+
+function World:step(dt)
+    local fixed, steps = self.fixed_dt, 0
+    self.accumulator = self.accumulator + dt
+    while self.accumulator >= fixed and steps < self.max_steps do
+        for collider in pairs(self.interpolated) do collider:_snapshot() end
+        self:update(fixed)
+        self.accumulator = self.accumulator - fixed
+        steps = steps + 1
+    end
+    if self.accumulator >= fixed then self.accumulator = self.accumulator % fixed end
+    return steps
+end
+
+function World:getAlpha()
+    return self.accumulator / self.fixed_dt
 end
 
 function World:_addCollisionHandler(collision_type, class_a, class_b, fn)
@@ -1131,6 +1160,37 @@ function Collider:removeShape(shape_name)
 end
 
 -- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
+function Collider:_snapshot()
+    self.prev_x, self.prev_y = self.body:getPosition()
+    self.prev_angle = self.body:getAngle()
+end
+
+function Collider:setInterpolated(interpolated)
+    if interpolated then
+        self:_snapshot()
+        self.world.interpolated[self] = true
+    else
+        self.world.interpolated[self] = nil
+    end
+end
+
+function Collider:isInterpolated()
+    return self.world.interpolated[self] == true
+end
+
+function Collider:getRenderPosition()
+    local x, y = self.body:getPosition()
+    if not self.world.interpolated[self] then return x, y end
+    local alpha = self.world:getAlpha()
+    return self.prev_x + (x - self.prev_x) * alpha, self.prev_y + (y - self.prev_y) * alpha
+end
+
+function Collider:getRenderAngle()
+    local angle = self.body:getAngle()
+    if not self.world.interpolated[self] then return angle end
+    return self.prev_angle + (angle - self.prev_angle) * self.world:getAlpha()
+end
+
 function Collider:destroy()
     if not self.body or self.destroy_pending then return end
     local world = self.world
@@ -1143,6 +1203,7 @@ function Collider:destroy()
 end
 
 function Collider:_destroy()
+    self.world.interpolated[self] = nil
     self.collision_stay = nil
     self.enter_collision_data = nil
     self.exit_collision_data = nil

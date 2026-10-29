@@ -74,6 +74,7 @@ local function install()
 
     local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
+        getAngle = function(self) return self.angle or 0 end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
         getFixtures = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,

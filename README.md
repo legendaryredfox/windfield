@@ -16,6 +16,9 @@
    * [World](#world)
       * [newWorld](#newworldxg-yg-sleep-options)
       * [update](#updatedt)
+      * [step](#stepdt)
+      * [setFixedStep](#setfixedstepdt-max_steps)
+      * [getAlpha](#getalpha)
       * [draw](#drawalpha)
       * [destroy](#destroy)
       * [addCollisionClass](#addcollisionclasscollision_class_name-collision_class)
@@ -47,6 +50,10 @@
       * [getExits](#getexitsother_collision_class_name)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
+      * [setInterpolated](#setinterpolatedinterpolated)
+      * [isInterpolated](#isinterpolated)
+      * [getRenderPosition](#getrenderposition)
+      * [getRenderAngle](#getrenderangle)
       * [setPreSolve](#setpresolvecallback)
       * [setPostSolve](#setpostsolvecallback)
       * [addShape](#addshapeshape_name-shape_type-)
@@ -371,6 +378,55 @@ world:update(dt)
 Arguments:
 
 * `dt` `(number)` - The time step delta
+
+---
+
+#### `:step(dt)`
+
+Updates the world with a fixed time step. The time `dt` is added to an accumulator and `update` runs with the fixed step as many times as fit, at most `max_steps` times. Time beyond that limit is dropped, so a long frame cannot make the next frame even longer. `update(dt)` keeps working as before and the two should not be mixed on the same world.
+
+```lua
+function love.update(dt)
+    local steps = world:step(dt)
+end
+```
+
+Arguments:
+
+* `dt` `(number)` - The frame time to add
+
+Returns:
+
+* `steps` `(number)` - How many fixed updates ran
+
+---
+
+#### `:setFixedStep(dt, max_steps)`
+
+Sets the fixed step used by `step`.
+
+```lua
+world:setFixedStep(1/120, 8)
+```
+
+Arguments:
+
+* `dt=1/60` `(number)` - The fixed time step, greater than zero
+* `max_steps=5` `(number)` - The most updates `step` runs in one call, at least 1
+
+---
+
+#### `:getAlpha()`
+
+Returns how far the accumulator is into the next fixed step, from 0 up to but not including 1. Use it to draw between the last two physics states.
+
+```lua
+local alpha = world:getAlpha()
+```
+
+Returns:
+
+* `alpha` `(number)` - The leftover fraction of a fixed step
 
 ---
 
@@ -968,6 +1024,55 @@ Arguments:
 Returns:
 
 * `collision_data_list` `(table[table])` - The data of every collider this collider is currently touching, one table per collider with the fields described in `getEnterCollisionData`. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned. Contacts are tracked from the enter and exit events, so `enter` does not have to be called for `stay` to work.
+
+---
+
+#### `:setInterpolated(interpolated)`
+
+Makes the world remember this collider's position and angle at the start of every fixed step done by `world:step`, so `getRenderPosition` and `getRenderAngle` can blend between the last two states. Interpolation only follows `world:step`; with `world:update` the previous state is not refreshed.
+
+```lua
+collider:setInterpolated(true)
+```
+
+Arguments:
+
+* `interpolated` `(boolean)` - Whether to interpolate this collider
+
+---
+
+#### `:isInterpolated()`
+
+Returns whether this collider is interpolated.
+
+Returns:
+
+* `interpolated` `(boolean)` - The interpolation flag
+
+---
+
+#### `:getRenderPosition()`
+
+Returns the position to draw the collider at: the position between the last two fixed steps for an interpolated collider, using `world:getAlpha()`, and the plain `getPosition` otherwise.
+
+```lua
+local x, y = collider:getRenderPosition()
+```
+
+Returns:
+
+* `x` `(number)` - The x position
+* `y` `(number)` - The y position
+
+---
+
+#### `:getRenderAngle()`
+
+Returns the angle to draw the collider at, interpolated the same way as `getRenderPosition`.
+
+Returns:
+
+* `angle` `(number)` - The angle in radians
 
 ---
 

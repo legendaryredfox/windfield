@@ -6,6 +6,8 @@
 
 - `wf.newWorld(xg, yg, sleep, options)`: `options.meter` sets the LÖVE physics meter.
 - Collider `settings` keys: `bullet`, `fixed_rotation`, `gravity_scale`, `linear_damping`, `angular_damping`, `sleeping_allowed`, `active`, `angle`, `restitution`, `friction`, `density`, `object`.
+- `World:step(dt)`, `World:setFixedStep(dt, max_steps)` and `World:getAlpha()`: fixed time step stepping with an accumulator and a step cap.
+- `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
 
 ### Changed
 
