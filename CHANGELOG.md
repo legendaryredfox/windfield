@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
+
+Snapshot and restore. Purely additive.
 
 ### Added
 
