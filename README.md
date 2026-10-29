@@ -35,6 +35,7 @@
       * [queryPolygonArea](#querypolygonareavertices-collision_class_names)
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
       * [raycast](#raycastx1-y1-x2-y2-collision_class_names-mode)
+      * [queryShape](#queryshapeshape_def-x-y-collision_class_names)
       * [queryPoint](#querypointx-y-collision_class_names)
       * [getColliderAt](#getcollideratx-y-collision_class_names)
       * [addJoint](#addjointjoint_type-)
@@ -784,6 +785,36 @@ Returns:
 
 * `all` mode: `table[table]` - The hits, each with `collider`, `x`, `y` (hit point), `nx`, `ny` (surface normal at the hit point) and `fraction` (0 at the start of the ray, 1 at its end). Empty when nothing is hit
 * `closest` mode: `table` - The nearest hit, with the same fields, or `nil` when nothing is hit
+
+---
+
+#### `:queryShape(shape_def, x, y, collision_class_names)`
+
+Returns the colliders that overlap a shape. Unlike the area queries this test is exact for every combination of shapes: it uses the distance between the query shape and each candidate (`love.physics.getDistance`), so a shape that is entirely inside a collider, a collider entirely inside the shape, circle colliders, edges and every segment of a chain are all handled the same way. The `query*Area` functions keep their own rules.
+
+```lua
+local hits = world:queryShape({type = 'circle', radius = 40}, player_x, player_y, {'Enemy'})
+local door = world:queryShape({type = 'rectangle', w = 30, h = 8, angle = math.pi / 4}, x, y)
+```
+
+Arguments:
+
+* `shape_def` `(table)` - The shape, with its position relative to `x`, `y`. `type` is one of:
+  * `'circle'` with `radius`
+  * `'rectangle'` with `w` and `h`, centered on `x`, `y`
+  * `'polygon'` with `vertices` (a flat list, convex, at most 8 points)
+  * `'edge'` with `x1`, `y1`, `x2`, `y2`
+
+  Any shape can also have an `angle` in radians, applied around `x`, `y`
+* `x` `(number)` - The x position the shape is placed at
+* `y` `(number)` - The y position the shape is placed at
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `table[Collider]` - The colliders that overlap or touch the shape, each once, in no particular order
+
+Shapes closer than about 0.3 pixels (0.6 between two polygons) count as touching, because LÖVE keeps a small skin around polygons. Sensor colliders are included like in the other queries. Colliders with several shapes are returned once.
 
 ---
 

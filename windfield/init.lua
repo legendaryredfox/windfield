@@ -85,6 +85,9 @@ function World.new(wf, xg, yg, sleep, options)
     self.conveyors = {}
     self.has_contact_rules = false
     self.has_draw_order = false
+    self.query_world = nil
+    self.query_body = nil
+    self.query_chain_body = nil
     self.collider_filter = nil
     self.filtered_contacts = setmetatable({}, {__mode = 'k'})
     self.fixed_dt = 1/60
@@ -1035,6 +1038,81 @@ function World:getColliderAt(x, y, collision_class_names)
     return self:queryPoint(x, y, collision_class_names)[1]
 end
 
+local function newQueryShape(shape_def)
+    if type(shape_def) ~= 'table' then error('The query shape must be a table such as {type = "circle", radius = 10}.', 3) end
+    local kind = shape_def.type
+    if kind == 'circle' then
+        if type(shape_def.radius) ~= 'number' then error('A circle query shape needs a numeric radius.', 3) end
+        return love.physics.newCircleShape(shape_def.radius)
+    elseif kind == 'rectangle' then
+        if type(shape_def.w) ~= 'number' or type(shape_def.h) ~= 'number' then error('A rectangle query shape needs numeric w and h.', 3) end
+        return love.physics.newRectangleShape(shape_def.w, shape_def.h)
+    elseif kind == 'polygon' then
+        if type(shape_def.vertices) ~= 'table' then error('A polygon query shape needs a vertices table.', 3) end
+        return love.physics.newPolygonShape(unpack(shape_def.vertices))
+    elseif kind == 'edge' then
+        return love.physics.newEdgeShape(shape_def.x1, shape_def.y1, shape_def.x2, shape_def.y2)
+    end
+    error('Unknown query shape type ' .. tostring(kind) .. '.', 3)
+end
+
+-- getDistance only looks at the first child of a chain, so a chain is tested one edge at a time.
+local function chainOverlaps(world, query_fixture, fixture, qx1, qy1, qx2, qy2)
+    local shape, body = fixture:getShape(), fixture:getBody()
+    local chain_body = world.query_chain_body
+    chain_body:setPosition(body:getPosition())
+    chain_body:setAngle(body:getAngle())
+    for child = 1, shape:getChildCount() do
+        local x1, y1, x2, y2 = fixture:getBoundingBox(child)
+        if x2 >= qx1 and x1 <= qx2 and y2 >= qy1 and y1 <= qy2 then
+            local edge_fixture = love.physics.newFixture(chain_body, shape:getChildEdge(child))
+            local distance = love.physics.getDistance(query_fixture, edge_fixture)
+            edge_fixture:destroy()
+            if distance <= 0 then return true end
+        end
+    end
+    return false
+end
+
+function World:queryShape(shape_def, x, y, collision_class_names)
+    local shape = newQueryShape(shape_def)
+    if not self.query_world then
+        self.query_world = love.physics.newWorld(0, 0, false)
+        self.query_body = love.physics.newBody(self.query_world, 0, 0, 'static')
+        self.query_chain_body = love.physics.newBody(self.query_world, 0, 0, 'static')
+    end
+    local body = self.query_body
+    body:setPosition(x, y)
+    body:setAngle(shape_def.angle or 0)
+    local query_fixture = love.physics.newFixture(body, shape)
+    local qx1, qy1, qx2, qy2 = query_fixture:getBoundingBox(1)
+    if self.query_debug_drawing_enabled then
+        table.insert(self.query_debug_draw, {type = 'rectangle', x = qx1, y = qy1, w = qx2 - qx1, h = qy2 - qy1, frames = self.draw_query_for_n_frames})
+    end
+
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local found, outs = {}, {}
+    self.box2d_world:queryBoundingBox(qx1, qy1, qx2, qy2, function(fixture)
+        local collider = fixture:getUserData()
+        if collider and not found[collider] and not collider.destroy_pending and not fixture:isSensor()
+            and (not allowed or allowed[collider.collision_class]) then
+            local hit
+            if fixture:getShape():type() == 'ChainShape' then
+                hit = chainOverlaps(self, query_fixture, fixture, qx1, qy1, qx2, qy2)
+            else
+                hit = love.physics.getDistance(query_fixture, fixture) <= 0
+            end
+            if hit then
+                found[collider] = true
+                outs[#outs + 1] = collider
+            end
+        end
+        return true
+    end)
+    query_fixture:destroy()
+    return outs
+end
+
 function World:raycast(x1, y1, x2, y2, collision_class_names, mode)
     mode = mode or 'all'
     if mode ~= 'all' and mode ~= 'closest' then error("Unknown raycast mode " .. tostring(mode) .. ".") end
@@ -1085,6 +1163,7 @@ function World:destroy()
     end
     local joints = self.box2d_world:getJoints()
     for _, joint in ipairs(joints) do joint:destroy() end
+    if self.query_world then self.query_world:destroy() end
     self.box2d_world:destroy()
     self.box2d_world = nil
 end

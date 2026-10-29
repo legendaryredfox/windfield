@@ -144,7 +144,16 @@ local function install()
     }
     local newPolygon = class('PolygonShape', polygonMethods)
     local newEdge = class('EdgeShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe, getChildCount = polygonMethods.getChildCount})
-    local newChain = class('ChainShape', {getPoints = polygonMethods.getPoints, probe = polygonMethods.probe, getChildCount = polygonMethods.getChildCount})
+    local newChain = class('ChainShape', {
+        getPoints = polygonMethods.getPoints,
+        probe = polygonMethods.probe,
+        getChildCount = function(self) return #self.points / 2 - 1 + (self.loop and 1 or 0) end,
+        getChildEdge = function(self, index)
+            local p, count = self.points, #self.points / 2
+            local next_index = index % count + 1
+            return newEdge({points = {p[2 * index - 1], p[2 * index], p[2 * next_index - 1], p[2 * next_index]}})
+        end,
+    })
     local newCircle = class('CircleShape', {
         probe = polygonMethods.probe,
         getChildCount = polygonMethods.getChildCount,
@@ -174,6 +183,14 @@ local function install()
 
     function love.physics.newWorld(xg, yg)
         return newWorldObject({gx = xg, gy = yg, bodies = {}, joints = {}})
+    end
+
+    function love.physics.getDistance(fixture_a, fixture_b)
+        local ax1, ay1, ax2, ay2 = fixture_a:getBoundingBox()
+        local bx1, by1, bx2, by2 = fixture_b:getBoundingBox()
+        local dx = math.max(0, bx1 - ax2, ax1 - bx2)
+        local dy = math.max(0, by1 - ay2, ay1 - by2)
+        return math.sqrt(dx * dx + dy * dy)
     end
 
     function love.physics.newBody(world, x, y, body_type)

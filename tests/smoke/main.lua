@@ -161,6 +161,41 @@ function love.load()
     check('queryPoint: rectangle', #point_hits == 1 and point_hits[1] == rect, #point_hits)
     check('queryPoint: circle inside and outside', ray_world:getColliderAt(205, 5) == ball and ray_world:getColliderAt(209, 9) == nil)
     check('queryPoint: class filter', #ray_world:queryPoint(110, 0, {'Zone'}) == 0 and ray_world:getColliderAt(55, 0, {'Zone'}) == zone)
+
+    local shape_world = wf.newWorld(0, 0, true)
+    local square = shape_world:newRectangleCollider(100, 100, 100, 100, {body_type = 'static'})
+    local disc = shape_world:newCircleCollider(500, 500, 10, {body_type = 'static'})
+    local zigzag = shape_world:newChainCollider({0, 300, 100, 300, 100, 400, 200, 400, 200, 300}, false, {body_type = 'static'})
+    shape_world:update(0)
+    local circle = function(r) return {type = 'circle', radius = r} end
+    local box = function(w, h, angle) return {type = 'rectangle', w = w, h = h, angle = angle} end
+    local cases = {
+        {'circle partly overlapping the square', circle(20), 100, 150, square, true},
+        {'circle inside the square', circle(5), 150, 150, square, true},
+        {'circle containing the square', circle(500), 150, 150, square, true},
+        {'circle tangent to the square', circle(20), 80, 150, square, true},
+        {'circle 2 px away from the square', circle(20), 78, 150, square, false},
+        {'rectangle touching the square edge', box(100, 50), 50, 150, square, true},
+        {'rectangle 3 px away from the square', box(100, 50), 47, 150, square, false},
+        {'edge crossing the square', {type = 'edge', x1 = -50, y1 = 0, x2 = 50, y2 = 0}, 100, 150, square, true},
+        {'edge inside the square', {type = 'edge', x1 = -10, y1 = 0, x2 = 10, y2 = 0}, 150, 150, square, true},
+        {'edge beside the square', {type = 'edge', x1 = -10, y1 = 0, x2 = 10, y2 = 0}, 50, 150, square, false},
+        {'long thin rectangle reaches the square only when rotated', box(100, 4), 70, 70, square, false},
+        {'rotated rectangle reaches the square', box(100, 4, math.pi / 4), 70, 70, square, true},
+        {'polygon covering the square', {type = 'polygon', vertices = {-60, -60, 60, -60, 60, 60, -60, 60}}, 150, 150, square, true},
+        {'small rectangle inside the circle collider', box(4, 4), 500, 500, disc, true},
+        {'rectangle whose corner is outside the circle collider', box(20, 20), 530, 530, disc, false},
+        {'circle on the third chain segment', circle(5), 150, 400, zigzag, true},
+        {'circle inside the chain bounding box but far from every segment', circle(5), 50, 350, zigzag, false},
+    }
+    for _, case in ipairs(cases) do
+        local name, shape_def, x, y, target, expected = unpack(case)
+        local hits = shape_world:queryShape(shape_def, x, y)
+        local found = false
+        for _, hit in ipairs(hits) do if hit == target then found = true end end
+        check('queryShape: ' .. name, found == expected, tostring(found))
+    end
+    shape_world:destroy()
     ray_world:destroy()
 
     local filter_world = wf.newWorld(0, 300, true)

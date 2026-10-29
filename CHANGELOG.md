@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `World:queryShape(shape_def, x, y, classes)`: exact overlap query for circles, rectangles, polygons and edges, with an optional angle.
+
 ## 0.3.0
 
 Tooling and polish: CI, lint, rockspec, debug draw options, per collider callbacks and a draw hook. Source compatible except for the draw changes listed under Changed.
