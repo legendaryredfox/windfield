@@ -190,7 +190,15 @@ local function install()
         local bx1, by1, bx2, by2 = fixture_b:getBoundingBox()
         local dx = math.max(0, bx1 - ax2, ax1 - bx2)
         local dy = math.max(0, by1 - ay2, ay1 - by2)
-        return math.sqrt(dx * dx + dy * dy)
+        local function nearest(a1, a2, b1, b2)
+            if b1 > a2 then return a2, b1 end
+            if a1 > b2 then return a1, b2 end
+            local middle = (math.max(a1, b1) + math.min(a2, b2)) / 2
+            return middle, middle
+        end
+        local px1, px2 = nearest(ax1, ax2, bx1, bx2)
+        local py1, py2 = nearest(ay1, ay2, by1, by2)
+        return math.sqrt(dx * dx + dy * dy), px1, py1, px2, py2
     end
 
     function love.physics.newBody(world, x, y, body_type)

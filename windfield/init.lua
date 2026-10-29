@@ -1039,21 +1039,21 @@ function World:getColliderAt(x, y, collision_class_names)
 end
 
 local function newQueryShape(shape_def)
-    if type(shape_def) ~= 'table' then error('The query shape must be a table such as {type = "circle", radius = 10}.', 3) end
+    if type(shape_def) ~= 'table' then error('The query shape must be a table such as {type = "circle", radius = 10}.', 4) end
     local kind = shape_def.type
     if kind == 'circle' then
-        if type(shape_def.radius) ~= 'number' then error('A circle query shape needs a numeric radius.', 3) end
+        if type(shape_def.radius) ~= 'number' then error('A circle query shape needs a numeric radius.', 4) end
         return love.physics.newCircleShape(shape_def.radius)
     elseif kind == 'rectangle' then
-        if type(shape_def.w) ~= 'number' or type(shape_def.h) ~= 'number' then error('A rectangle query shape needs numeric w and h.', 3) end
+        if type(shape_def.w) ~= 'number' or type(shape_def.h) ~= 'number' then error('A rectangle query shape needs numeric w and h.', 4) end
         return love.physics.newRectangleShape(shape_def.w, shape_def.h)
     elseif kind == 'polygon' then
-        if type(shape_def.vertices) ~= 'table' then error('A polygon query shape needs a vertices table.', 3) end
+        if type(shape_def.vertices) ~= 'table' then error('A polygon query shape needs a vertices table.', 4) end
         return love.physics.newPolygonShape(unpack(shape_def.vertices))
     elseif kind == 'edge' then
         return love.physics.newEdgeShape(shape_def.x1, shape_def.y1, shape_def.x2, shape_def.y2)
     end
-    error('Unknown query shape type ' .. tostring(kind) .. '.', 3)
+    error('Unknown query shape type ' .. tostring(kind) .. '.', 4)
 end
 
 -- getDistance only looks at the first child of a chain, so a chain is tested one edge at a time.
@@ -1074,17 +1074,21 @@ local function chainOverlaps(world, query_fixture, fixture, qx1, qy1, qx2, qy2)
     return false
 end
 
-function World:queryShape(shape_def, x, y, collision_class_names)
+local function newQueryFixture(world, shape_def, x, y)
     local shape = newQueryShape(shape_def)
-    if not self.query_world then
-        self.query_world = love.physics.newWorld(0, 0, false)
-        self.query_body = love.physics.newBody(self.query_world, 0, 0, 'static')
-        self.query_chain_body = love.physics.newBody(self.query_world, 0, 0, 'static')
+    if not world.query_world then
+        world.query_world = love.physics.newWorld(0, 0, false)
+        world.query_body = love.physics.newBody(world.query_world, 0, 0, 'static')
+        world.query_chain_body = love.physics.newBody(world.query_world, 0, 0, 'static')
     end
-    local body = self.query_body
+    local body = world.query_body
     body:setPosition(x, y)
     body:setAngle(shape_def.angle or 0)
-    local query_fixture = love.physics.newFixture(body, shape)
+    return love.physics.newFixture(body, shape)
+end
+
+function World:queryShape(shape_def, x, y, collision_class_names)
+    local query_fixture = newQueryFixture(self, shape_def, x, y)
     local qx1, qy1, qx2, qy2 = query_fixture:getBoundingBox(1)
     if self.query_debug_drawing_enabled then
         table.insert(self.query_debug_draw, {type = 'rectangle', x = qx1, y = qy1, w = qx2 - qx1, h = qy2 - qy1, frames = self.draw_query_for_n_frames})
@@ -1111,6 +1115,98 @@ function World:queryShape(shape_def, x, y, collision_class_names)
     end)
     query_fixture:destroy()
     return outs
+end
+
+local shape_cast_iterations = 32
+local shape_cast_tolerance = 1e-3
+
+-- Conservative advancement: the nearest points define a plane that separates two convex shapes, so the
+-- moving shape cannot touch the other one before it travels the gap divided by the cosine to that plane.
+local function advanceToHit(body, query_fixture, x, y, dx, dy, length, ux, uy, test_fixture, limit)
+    local t = 0
+    local nx, ny
+    for _ = 1, shape_cast_iterations do
+        body:setPosition(x + dx * t, y + dy * t)
+        local distance, x1, y1, x2, y2 = love.physics.getDistance(query_fixture, test_fixture)
+        if distance <= shape_cast_tolerance then
+            -- Near contact the two points collapse and float noise decides their direction, so the normal comes from the last clear step.
+            if not nx then
+                nx, ny = x1 - x2, y1 - y2
+                local normal_length = math.sqrt(nx * nx + ny * ny)
+                if normal_length > 0.05 then nx, ny = nx / normal_length, ny / normal_length
+                else nx, ny = -ux, -uy end
+            end
+            return t, nx, ny, x2, y2
+        end
+        local sx, sy = x2 - x1, y2 - y1
+        local separation = math.sqrt(sx * sx + sy * sy)
+        nx, ny = -sx / separation, -sy / separation
+        local rate = (ux * sx + uy * sy) / separation
+        if rate <= 1e-6 then return nil end
+        t = t + distance / (rate * length)
+        if t > 1 or t >= limit then return nil end
+    end
+    return nil
+end
+
+function World:shapeCast(shape_def, x, y, dx, dy, collision_class_names)
+    if type(dx) ~= 'number' or type(dy) ~= 'number' then error('shapeCast needs a numeric movement dx, dy.') end
+    local query_fixture = newQueryFixture(self, shape_def, x, y)
+    local body = self.query_body
+    local length = math.sqrt(dx * dx + dy * dy)
+    local ux, uy = 0, 0
+    if length > 0 then ux, uy = dx / length, dy / length end
+
+    local sx1, sy1, sx2, sy2 = query_fixture:getBoundingBox(1)
+    body:setPosition(x + dx, y + dy)
+    local ex1, ey1, ex2, ey2 = query_fixture:getBoundingBox(1)
+    local qx1, qy1 = math.min(sx1, ex1), math.min(sy1, ey1)
+    local qx2, qy2 = math.max(sx2, ex2), math.max(sy2, ey2)
+    if self.query_debug_drawing_enabled then
+        table.insert(self.query_debug_draw, {type = 'line', x1 = x, y1 = y, x2 = x + dx, y2 = y + dy, frames = self.draw_query_for_n_frames})
+    end
+
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local candidates = {}
+    self.box2d_world:queryBoundingBox(qx1, qy1, qx2, qy2, function(fixture)
+        local collider = fixture:getUserData()
+        if collider and not collider.destroy_pending and not fixture:isSensor()
+            and (not allowed or allowed[collider.collision_class]) then
+            candidates[#candidates + 1] = fixture
+        end
+        return true
+    end)
+
+    local best_t, best
+    local function consider(test_fixture, collider)
+        local t, nx, ny, px, py = advanceToHit(body, query_fixture, x, y, dx, dy, length, ux, uy, test_fixture, best_t or math.huge)
+        if t then
+            best_t = t
+            best = {collider = collider, fraction = t, x = px, y = py, nx = nx, ny = ny}
+            if t == 0 then best.overlap = true end
+        end
+    end
+    for _, fixture in ipairs(candidates) do
+        local collider = fixture:getUserData()
+        if fixture:getShape():type() == 'ChainShape' then
+            local shape, chain_body = fixture:getShape(), self.query_chain_body
+            local fixture_body = fixture:getBody()
+            chain_body:setPosition(fixture_body:getPosition())
+            chain_body:setAngle(fixture_body:getAngle())
+            for child = 1, shape:getChildCount() do
+                local cx1, cy1, cx2, cy2 = fixture:getBoundingBox(child)
+                if cx2 >= qx1 and cx1 <= qx2 and cy2 >= qy1 and cy1 <= qy2 then
+                    local edge_fixture = love.physics.newFixture(chain_body, shape:getChildEdge(child))
+                    consider(edge_fixture, collider)
+                    edge_fixture:destroy()
+                end
+            end
+        else
+            consider(fixture, collider)
+        end
+    end
+    query_fixture:destroy()
+    return best
 end
 
 function World:raycast(x1, y1, x2, y2, collision_class_names, mode)

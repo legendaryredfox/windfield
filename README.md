@@ -36,6 +36,7 @@
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
       * [raycast](#raycastx1-y1-x2-y2-collision_class_names-mode)
       * [queryShape](#queryshapeshape_def-x-y-collision_class_names)
+      * [shapeCast](#shapecastshape_def-x-y-dx-dy-collision_class_names)
       * [queryPoint](#querypointx-y-collision_class_names)
       * [getColliderAt](#getcollideratx-y-collision_class_names)
       * [addJoint](#addjointjoint_type-)
@@ -815,6 +816,39 @@ Returns:
 * `table[Collider]` - The colliders that overlap or touch the shape, each once, in no particular order
 
 Shapes closer than about 0.3 pixels (0.6 between two polygons) count as touching, because LÖVE keeps a small skin around polygons. Sensor colliders are included like in the other queries. Colliders with several shapes are returned once.
+
+---
+
+#### `:shapeCast(shape_def, x, y, dx, dy, collision_class_names)`
+
+Moves a shape from `x, y` by `dx, dy` and returns the first collider it hits, like a ray with thickness. Use it for projectiles with a size, ground checks under a character, or to find out how far something can move before it stops.
+
+```lua
+local hit = world:shapeCast({type = 'circle', radius = 8}, player_x, player_y, 0, 40, {'Ground'})
+if hit then
+    local fall_distance = hit.fraction * 40
+end
+```
+
+Arguments:
+
+* `shape_def` `(table)` - The shape, same format as in `queryShape` (`angle` is supported and stays fixed while moving)
+* `x` `(number)` - The x position where the shape starts
+* `y` `(number)` - The y position where the shape starts
+* `dx` `(number)` - The x movement
+* `dy` `(number)` - The y movement
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `table` - The nearest hit, or `nil` when the shape can make the whole movement:
+  * `collider` `(Collider)` - The collider that was hit
+  * `fraction` `(number)` - How much of the movement is possible before the contact: 0 means no movement, 1 the whole movement
+  * `x`, `y` `(number)` - The contact point on the collider
+  * `nx`, `ny` `(number)` - The unit normal at the contact, pointing from the collider towards the shape
+  * `overlap` `(boolean)` - Only present, and `true`, when the shape already overlapped the collider at the start (`fraction` is 0 and the normal is the opposite of the movement). With `dx, dy` equal to 0 the call is an overlap test
+
+The fraction is found by advancing the shape in steps limited by its distance to the collider (at most 32 steps), so it stops at the contact within LÖVE's polygon skin of about 0.3 pixels, a little before the exact touching position. Shapes that only graze a collider while moving parallel to it do not count as hits. The shape only moves, it does not rotate.
 
 ---
 

@@ -523,6 +523,69 @@ test('queryShape returns a collider once and tests every segment of a chain', fu
     eq(#world:queryShape({type = 'circle', radius = 2}, 10, 550), 1, 'on the middle segment')
 end)
 
+local function near(actual, expected, tolerance, label)
+    if math.abs(actual - expected) > tolerance then
+        error((label or 'value') .. ': expected about ' .. tostring(expected) .. ', got ' .. tostring(actual), 2)
+    end
+end
+
+test('shapeCast reports the first hit with fraction, point and normal', function()
+    local world = newWorld()
+    world:addCollisionClass('Wall')
+    local wall = world:newRectangleCollider(100, 0, 10, 10, {collision_class = 'Wall', body_type = 'static'})
+    local far = world:newRectangleCollider(200, 0, 10, 10, {body_type = 'static'})
+    local box = {type = 'rectangle', w = 10, h = 10}
+
+    local hit = world:shapeCast(box, 0, 5, 300, 0)
+    eq(hit.collider, wall, 'nearest collider')
+    near(hit.fraction, 95 / 300, 1e-6, 'fraction')
+    near(hit.x, 100, 1e-6, 'point x')
+    eq(hit.nx, -1, 'normal x points back at the mover')
+    near(hit.ny, 0, 1e-6, 'normal y')
+    eq(hit.overlap, nil, 'not an initial overlap')
+
+    hit = world:shapeCast(box, 0, 5, 300, 0, {'All', except = {'Wall'}})
+    eq(hit.collider, far, 'class filter skips the nearer wall')
+    near(hit.fraction, 195 / 300, 1e-6, 'fraction past the filtered wall')
+
+    eq(world:shapeCast(box, 0, 5, 50, 0), nil, 'movement too short')
+    eq(world:shapeCast(box, 0, 5, -300, 0), nil, 'moving away')
+    eq(world:shapeCast(box, 0, 50, 300, 0), nil, 'moving past on the side')
+    eq(world:shapeCast(box, 0, 5, 300, 0, {'Nothing'}), nil, 'no class matches')
+end)
+
+test('shapeCast handles initial overlap, zero movement, diagonal moves and chains', function()
+    local world = newWorld()
+    local wall = world:newRectangleCollider(100, 0, 10, 10, {body_type = 'static'})
+    local box = {type = 'rectangle', w = 10, h = 10}
+
+    local hit = world:shapeCast(box, 100, 5, 50, 0)
+    eq(hit.collider, wall, 'overlapping collider')
+    eq(hit.fraction, 0, 'overlap fraction')
+    eq(hit.overlap, true, 'overlap flag')
+    eq(hit.nx, -1, 'overlap normal opposes the movement')
+    eq(world:shapeCast(box, 100, 5, 0, 0).overlap, true, 'zero movement is an overlap test')
+    eq(world:shapeCast(box, 0, 5, 0, 0), nil, 'zero movement without overlap')
+
+    hit = world:shapeCast(box, 0, -95, 200, 200)
+    eq(hit.collider, wall, 'diagonal hit')
+    truthy(hit.fraction > 0 and hit.fraction < 1, 'diagonal fraction')
+
+    local chain = world:newChainCollider({0, 500, 10, 500, 10, 600, 20, 600}, false, {body_type = 'static'})
+    hit = world:shapeCast({type = 'circle', radius = 2}, 15, 550, 0, 100)
+    eq(hit.collider, chain, 'chain')
+    near(hit.y, 600, 1e-6, 'chain point')
+    eq(world:shapeCast({type = 'circle', radius = 2}, 5, 540, 0, 100), nil, 'between chain segments')
+end)
+
+test('shapeCast validates its arguments and releases its fixtures', function()
+    local world = newWorld()
+    raises(function() world:shapeCast({type = 'triangle'}, 0, 0, 1, 0) end, 'unknown type')
+    raises(function() world:shapeCast({type = 'circle', radius = 1}, 0, 0, 'x', 0) end, 'bad movement')
+    world:shapeCast({type = 'circle', radius = 1}, 0, 0, 10, 0)
+    eq(#world.query_body:getFixtures(), 0, 'query fixtures are destroyed')
+end)
+
 test('queryShape validates the shape definition and releases its fixtures', function()
     local world = newWorld()
     raises(function() world:queryShape({type = 'triangle'}, 0, 0) end, 'unknown type')

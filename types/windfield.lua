@@ -221,6 +221,18 @@ function World:getColliderAt(x, y, collision_class_names) end
 ---@return windfield.Collider[]
 function World:queryShape(shape_def, x, y, collision_class_names) end
 
+---@class windfield.ShapeCastHit: windfield.RayHit
+---@field overlap? boolean True when the shape already overlapped the collider at the start.
+
+---@param shape_def windfield.QueryShape
+---@param x number Start position.
+---@param y number Start position.
+---@param dx number Movement.
+---@param dy number Movement.
+---@param collision_class_names? windfield.ClassNames Default {'All'}.
+---@return windfield.ShapeCastHit? hit The nearest hit, nil when the whole movement is free. `nx`, `ny` point from the collider to the shape.
+function World:shapeCast(shape_def, x, y, dx, dy, collision_class_names) end
+
 ---@class windfield.RayHit
 ---@field collider windfield.Collider
 ---@field x number Hit point x.

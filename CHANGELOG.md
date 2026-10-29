@@ -5,6 +5,7 @@
 ### Added
 
 - `World:queryShape(shape_def, x, y, classes)`: exact overlap query for circles, rectangles, polygons and edges, with an optional angle.
+- `World:shapeCast(shape_def, x, y, dx, dy, classes)`: first hit of a moving shape with fraction, point and normal, by conservative advancement.
 
 ## 0.3.0
 
