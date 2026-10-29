@@ -202,6 +202,25 @@ function World:queryPoint(x, y, collision_class_names) end
 ---@return windfield.Collider?
 function World:getColliderAt(x, y, collision_class_names) end
 
+---@class windfield.QueryShape
+---@field type 'circle'|'rectangle'|'polygon'|'edge'
+---@field radius? number For 'circle'.
+---@field w? number For 'rectangle', centered on the placement point.
+---@field h? number For 'rectangle'.
+---@field vertices? number[] For 'polygon': flat list, convex, at most 8 points.
+---@field x1? number For 'edge'.
+---@field y1? number For 'edge'.
+---@field x2? number For 'edge'.
+---@field y2? number For 'edge'.
+---@field angle? number Radians, around the placement point.
+
+---@param shape_def windfield.QueryShape
+---@param x number
+---@param y number
+---@param collision_class_names? windfield.ClassNames Default {'All'}.
+---@return windfield.Collider[]
+function World:queryShape(shape_def, x, y, collision_class_names) end
+
 ---@class windfield.RayHit
 ---@field collider windfield.Collider
 ---@field x number Hit point x.
