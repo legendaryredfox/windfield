@@ -50,6 +50,8 @@
       * [newBridge](#newbridgedef)
       * [newRagdoll](#newragdolldef)
       * [newPool](#newpoolfactory-reset)
+      * [snapshot](#snapshot)
+      * [restore](#restoresnapshot)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
       * [onEnter](#onenterclass_a-class_b-callback)
@@ -1267,6 +1269,40 @@ Returns:
   * `clear()` - Destroys the released colliders that are waiting
 
 Colliders that other colliders were touching send them an `exit` event when they are released. As with creating colliders, do not call `get` from the `pre` and `post` callbacks; use `world:onEnter` handlers or code after `update`.
+
+---
+
+#### `:snapshot()`
+
+Records the state of every collider of the world: position, angle, linear and angular velocity, whether the body is awake and active, whether it is parked in a pool and its collision class. Use it for rewinding time, for checkpoints and to undo a move in a puzzle.
+
+```lua
+local checkpoint = world:snapshot()
+-- ... play for a while ...
+local missing = world:restore(checkpoint)
+```
+
+Returns:
+
+* `snapshot` `(table)` - A table keyed by collider `id`. Each entry has `x`, `y`, `angle`, `vx`, `vy`, `av`, `awake`, `active`, `pooled` and `collision_class`. It is plain data, so it can be copied or serialized
+
+---
+
+#### `:restore(snapshot)`
+
+Writes a snapshot back into the colliders that still exist: it moves them, sets their velocities, sleep state and collision class, and clears their collision events. It does not create colliders that were destroyed since the snapshot and does not touch colliders that were created after it. Call it outside the physics callbacks.
+
+Arguments:
+
+* `snapshot` `(table)` - A table returned by `world:snapshot`
+
+Returns:
+
+* `missing` `(table[string])` - The sorted ids of the snapshot entries whose collider no longer exists
+
+Box2D keeps the impulses of resting contacts from one step to the next (warm starting) and LÖVE does not let you read or write them, so a restored world is not bit-identical to the original run. The restored state itself is exact. Free flying bodies and simple scenes continue exactly as before: in the tests, a few boxes and balls restored in mid fall stay within 0.01 pixels of the original run. A pile of dozens of bodies in contact drifts apart after a restore (a pile of 60 bodies was about a hundred pixels off after 30 to 200 steps), so do not rely on restore for lockstep or rollback of stacked bodies.
+
+For replays, recreate the world instead of restoring it. With the fixed step (`world:step`), the same creation order, the same random seed and the same inputs on the same machine, two runs gave identical results in the tests (a pile of 60 bodies, 400 steps, differences of exactly 0), so a replay is "build the scene again, feed the recorded inputs frame by frame". Colliders get random ids, so key your recorded inputs by creation order or by your own names, not by `collider.id`. Results across different machines or LÖVE builds are not promised.
 
 ---
 

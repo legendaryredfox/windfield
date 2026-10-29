@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `World:snapshot()` and `World:restore(snapshot)`: save and restore position, angle, velocities, sleep state, active and pooled state and collision class of every collider. Restore is exact for the state, but resting contact impulses are not restored, so stacks of bodies drift (documented). A replay recorder is not offered: replays are done by rebuilding the world and replaying inputs, which was verified to be deterministic.
+
 ## 0.9.0
 
 Collider pools. Purely additive.
