@@ -41,6 +41,17 @@ test('the module does not leak globals', function()
     eq(rawget(_G, 'Collider'), nil, 'Collider global')
 end)
 
+test('the meter is set by the first world and by options.meter, never reset by later worlds', function()
+    love.physics.setMeter(30)
+    love.physics.meter_calls = 0
+    wf.newWorld(0, 0, true, {meter = 64})
+    eq(love.physics.getMeter(), 64, 'options.meter')
+    love.physics.setMeter(50)
+    wf.newWorld(0, 0, true)
+    eq(love.physics.getMeter(), 50, 'second world without options')
+    raises(function() wf.newWorld(0, 0, true, {meter = 'x'}) end, 'invalid meter')
+end)
+
 test('newWorld has the Default class and forwards Box2D methods', function()
     local world = newWorld()
     truthy(world.collision_classes.Default, 'Default class')

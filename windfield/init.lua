@@ -23,6 +23,7 @@ SOFTWARE.
 ]]--
 
 local unpack = table.unpack or unpack
+local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
 wf._VERSION = '0.1.0'
@@ -57,8 +58,8 @@ local function collisionData(event)
             nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
 end
 
-function wf.newWorld(xg, yg, sleep)
-    local world = wf.World.new(wf, xg, yg, sleep)
+function wf.newWorld(xg, yg, sleep, options)
+    local world = wf.World.new(wf, xg, yg, sleep, options)
 
     world.box2d_world:setCallbacks(world.collisionOnEnter, world.collisionOnExit, world.collisionPre, world.collisionPost)
     world:collisionClear()
@@ -67,7 +68,7 @@ function wf.newWorld(xg, yg, sleep)
     return world
 end
 
-function World.new(wf, xg, yg, sleep)
+function World.new(wf, xg, yg, sleep, options)
     local self = {}
     local settings = settings or {}
     self.wf = wf
@@ -103,7 +104,10 @@ function World.new(wf, xg, yg, sleep)
     self.is_sensor_memo = {}
     self.query_debug_draw = {}
 
-    love.physics.setMeter(32)
+    local meter = options and options.meter
+    if meter ~= nil and (type(meter) ~= 'number' or meter <= 0) then error('options.meter must be a positive number.') end
+    if meter or not meter_initialized then love.physics.setMeter(meter or 32) end
+    meter_initialized = true
     self.box2d_world = love.physics.newWorld(xg, yg, sleep) 
 
     world_metatable = world_metatable or {__index = newProxyIndex(World, {{field = 'box2d_world', methods = self.box2d_world.__index}})}

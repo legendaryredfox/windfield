@@ -14,7 +14,7 @@
    * [One-way Platforms](#one-way-platforms)
 * [Documentation](#documentation)
    * [World](#world)
-      * [newWorld](#newworldxg-yg-sleep)
+      * [newWorld](#newworldxg-yg-sleep-options)
       * [update](#updatedt)
       * [draw](#drawalpha)
       * [destroy](#destroy)
@@ -337,7 +337,7 @@ On top of containing all functions exposed in this documentation it also contain
 
 ---
 
-#### `.newWorld(xg, yg, sleep)`
+#### `.newWorld(xg, yg, sleep, options)`
 
 Creates a new World.
 
@@ -350,6 +350,7 @@ Arguments:
 * `xg` `(number)` - The world's x gravity component
 * `yg` `(number)` - The world's y gravity component
 * `sleep=true` `(boolean)` - If the world's bodies are allowed to sleep or not
+* `options` `(table)` - Optional. `options.meter` `(number)` sets the LÖVE physics meter (pixels per meter, default `32`). The meter is global to LÖVE: the first world sets it to `32` when no option is given, and later worlds leave it alone, so a game that calls `love.physics.setMeter` after the first world keeps its value
 
 Returns:
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `wf.newWorld(xg, yg, sleep, options)`: `options.meter` sets the LÖVE physics meter.
+
+### Changed
+
+- Creating a world no longer resets the physics meter to `32` when the meter was already set by an earlier world.
+
 ## 0.1.0
 
 Performance and event handling foundations. Public API stays source compatible; the behavior changes are listed below.

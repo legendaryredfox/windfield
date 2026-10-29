@@ -121,7 +121,13 @@ local function install()
         random = function(_, n) return math.random(n) end,
     })
 
-    function love.physics.setMeter() end
+    local meter = 30
+    love.physics.meter_calls = 0
+    function love.physics.setMeter(m)
+        meter = m
+        love.physics.meter_calls = love.physics.meter_calls + 1
+    end
+    function love.physics.getMeter() return meter end
 
     function love.physics.newWorld(xg, yg)
         return newWorldObject({gx = xg, gy = yg, bodies = {}, joints = {}})
