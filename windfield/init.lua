@@ -1556,12 +1556,188 @@ function World:raycast(x1, y1, x2, y2, collision_class_names, mode)
     return hits
 end
 
+local joint_option_keys = {limits = true, motor = true, frequency = true, damping_ratio = true}
+
+local function applyJointOptions(joint, options)
+    if options.limits then
+        if joint.setLimitsEnabled then joint:setLimitsEnabled(true) end
+        joint:setLimits(options.limits[1], options.limits[2])
+    end
+    if options.motor then
+        joint:setMotorEnabled(true)
+        joint:setMotorSpeed(options.motor.speed)
+        local torque, force = options.motor.torque, options.motor.force
+        if force and joint.setMaxMotorForce then joint:setMaxMotorForce(force) end
+        if torque and joint.setMaxMotorTorque then joint:setMaxMotorTorque(torque) end
+    end
+    local spring = joint:type() == 'WheelJoint'
+    if options.frequency then
+        if spring then joint:setSpringFrequency(options.frequency) else joint:setFrequency(options.frequency) end
+    end
+    if options.damping_ratio then
+        if spring then joint:setSpringDampingRatio(options.damping_ratio) else joint:setDampingRatio(options.damping_ratio) end
+    end
+end
+
 function World:addJoint(joint_type, ...)
-    local args = {...}
+    local args, count = {...}, select('#', ...)
+    local options
+    if count >= 3 and type(args[count]) == 'table' then
+        options = args[count]
+        args[count] = nil
+        count = count - 1
+        for key in pairs(options) do
+            if not joint_option_keys[key] then error('Unknown joint option ' .. tostring(key) .. '.', 2) end
+        end
+    end
     if args[1].body then args[1] = args[1].body end
     if type(args[2]) == "table" and args[2].body then args[2] = args[2].body end
-    local joint = love.physics['new' .. joint_type](unpack(args))
+    local joint = love.physics['new' .. joint_type](unpack(args, 1, count))
+    if options then applyJointOptions(joint, options) end
     return joint
+end
+
+for _, joint_type in ipairs({'DistanceJoint', 'RevoluteJoint', 'PrismaticJoint', 'WeldJoint', 'RopeJoint', 'WheelJoint',
+    'FrictionJoint', 'MotorJoint', 'MouseJoint', 'PulleyJoint', 'GearJoint'}) do
+    World['new' .. joint_type] = function(self, ...) return self:addJoint(joint_type, ...) end
+end
+
+function World:getJointsOf(collider)
+    return collider.body:getJoints()
+end
+
+local atan2 = math.atan2 or math.atan
+
+local function newAssembly()
+    local assembly = {parts = {}, joints = {}}
+    function assembly:destroy()
+        if self.destroyed then return end
+        self.destroyed = true
+        for _, joint in ipairs(self.joints) do
+            if not joint:isDestroyed() then joint:destroy() end
+        end
+        for _, collider in pairs(self.parts) do collider:destroy() end
+    end
+    return assembly
+end
+
+local function buildSafely(assembly, build)
+    local ok, err = pcall(build)
+    if not ok then
+        assembly:destroy()
+        error(err, 3)
+    end
+    return assembly
+end
+
+local linked_keys = {
+    x1 = true, y1 = true, x2 = true, y2 = true, segments = true, thickness = true, radius = true,
+    settings = true, anchor_a = true, anchor_b = true, pin_a = true, pin_b = true,
+}
+
+-- Rope and bridge segments are rectangles along the line, chain links are circles on it; neighbours share a revolute joint.
+function World:_newLinked(def, kind)
+    if type(def) ~= 'table' then error('A ' .. kind .. ' needs a definition table.', 3) end
+    for key in pairs(def) do
+        if not linked_keys[key] then error('Unknown ' .. kind .. ' key ' .. tostring(key) .. '.', 3) end
+    end
+    local x1, y1, x2, y2 = def.x1, def.y1, def.x2, def.y2
+    if not (isNumber(x1) and isNumber(y1) and isNumber(x2) and isNumber(y2)) then error('A ' .. kind .. ' needs numeric x1, y1, x2 and y2.', 3) end
+    local dx, dy = x2 - x1, y2 - y1
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length == 0 then error('A ' .. kind .. ' needs two different end points.', 3) end
+    local count = def.segments or 10
+    if type(count) ~= 'number' or count < 1 or count % 1 ~= 0 then error('segments must be a whole number of at least 1.', 3) end
+    local ux, uy, angle = dx / length, dy / length, atan2(dy, dx)
+    local thickness = def.thickness or 6
+    local radius = def.radius or 4
+    local pin_a, pin_b = def.pin_a, def.pin_b
+    if kind == 'bridge' then
+        if pin_a == nil then pin_a = true end
+        if pin_b == nil then pin_b = true end
+    end
+    local function settingsFor()
+        local settings = {}
+        for key, value in pairs(def.settings or {}) do settings[key] = value end
+        return settings
+    end
+
+    local assembly = newAssembly()
+    return buildSafely(assembly, function()
+        local centers, joints_at = {}, {}
+        if kind == 'chain' then
+            for i = 1, count do
+                local t = count == 1 and 0 or (i - 1) / (count - 1)
+                centers[i] = {x1 + dx * t, y1 + dy * t}
+                local collider = self:newCircleCollider(centers[i][1], centers[i][2], radius, settingsFor())
+                assembly.parts[i] = collider
+            end
+            for i = 1, count - 1 do
+                joints_at[i] = {(centers[i][1] + centers[i + 1][1]) / 2, (centers[i][2] + centers[i + 1][2]) / 2}
+            end
+        else
+            local segment = length / count
+            for i = 1, count do
+                local cx, cy = x1 + ux * segment * (i - 0.5), y1 + uy * segment * (i - 0.5)
+                local settings = settingsFor()
+                settings.angle = angle
+                assembly.parts[i] = self:newRectangleCollider(cx - segment / 2, cy - thickness / 2, segment, thickness, settings)
+            end
+            for i = 1, count - 1 do joints_at[i] = {x1 + ux * segment * i, y1 + uy * segment * i} end
+        end
+        for i = 1, count - 1 do
+            assembly.joints[#assembly.joints + 1] = self:newRevoluteJoint(assembly.parts[i], assembly.parts[i + 1], joints_at[i][1], joints_at[i][2])
+        end
+        local function pin(anchor, create, part, x, y, name)
+            if not anchor and create then
+                anchor = self:newRectangleCollider(x - 3, y - 3, 6, 6, {body_type = 'static'})
+                assembly.parts[name] = anchor
+            end
+            if anchor then assembly.joints[#assembly.joints + 1] = self:newRevoluteJoint(anchor, part, x, y) end
+        end
+        pin(def.anchor_a, pin_a, assembly.parts[1], x1, y1, 'pin_a')
+        pin(def.anchor_b, pin_b, assembly.parts[count], x2, y2, 'pin_b')
+    end)
+end
+
+function World:newRope(def) return self:_newLinked(def, 'rope') end
+function World:newChain(def) return self:_newLinked(def, 'chain') end
+function World:newBridge(def) return self:_newLinked(def, 'bridge') end
+
+local ragdoll_keys = {parts = true, joints = true}
+
+function World:newRagdoll(def)
+    if type(def) ~= 'table' or type(def.parts) ~= 'table' or type(def.joints) ~= 'table' then
+        error('A ragdoll needs a definition table with parts and joints.', 2)
+    end
+    for key in pairs(def) do
+        if not ragdoll_keys[key] then error('Unknown ragdoll key ' .. tostring(key) .. '.', 2) end
+    end
+    local assembly = newAssembly()
+    assembly.parts = {}
+    return buildSafely(assembly, function()
+        for name, part in pairs(def.parts) do
+            local settings = {}
+            for key, value in pairs(part.settings or {}) do settings[key] = value end
+            if part.angle then settings.angle = part.angle end
+            if part.shape == 'circle' then
+                assembly.parts[name] = self:newCircleCollider(part.x, part.y, part.r, settings)
+            elseif part.shape == 'rectangle' then
+                assembly.parts[name] = self:newRectangleCollider(part.x, part.y, part.w, part.h, settings)
+            else
+                error('Ragdoll part ' .. tostring(name) .. ' has an unknown shape ' .. tostring(part.shape) .. '.')
+            end
+        end
+        for _, joint in ipairs(def.joints) do
+            local a, b = assembly.parts[joint.a], assembly.parts[joint.b]
+            if not a or not b then error('A ragdoll joint refers to a part that does not exist: ' .. tostring(joint.a) .. ', ' .. tostring(joint.b) .. '.') end
+            local args = {unpack(joint.args or {})}
+            local count = #args
+            if joint.collide ~= nil then count = count + 1 args[count] = joint.collide end
+            if joint.options then count = count + 1 args[count] = joint.options end
+            assembly.joints[#assembly.joints + 1] = self:addJoint(joint.type, a, b, unpack(args, 1, count))
+        end
+    end)
 end
 
 function World:removeJoint(joint)

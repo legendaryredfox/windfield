@@ -91,6 +91,7 @@ local function install()
             self.forces[#self.forces + 1] = {fx, fy}
         end,
         getContacts = function(self) return self.contacts or {} end,
+        getJoints = function(self) return self.joints end,
         getType = function(self) return self.body_type or 'dynamic' end,
         isAwake = function(self) return not self.asleep end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
@@ -168,13 +169,16 @@ local function install()
         getPoint = function() return 0, 0 end,
     })
 
-    local newJointObject = class('Joint', {
+    local joint_methods = merge({
         getAnchors = function(self) return self.x1, self.y1, self.x2, self.y2 end,
+        isDestroyed = function(self) return self.destroyed == true end,
         destroy = function(self)
             remove(self.world.joints, self)
+            for _, body in ipairs(self.bodies) do remove(body.joints, self) end
             self.destroyed = true
         end,
-    })
+    }, recorders({'setLimits', 'setLimitsEnabled', 'setMotorEnabled', 'setMotorSpeed', 'setMaxMotorTorque',
+        'setMaxMotorForce', 'setFrequency', 'setDampingRatio', 'setSpringFrequency', 'setSpringDampingRatio'}))
 
     local newGenerator = class('RandomGenerator', {
         random = function(_, n) return math.random(n) end,
@@ -209,7 +213,7 @@ local function install()
     end
 
     function love.physics.newBody(world, x, y, body_type)
-        local body = newBodyObject({world = world, x = x, y = y, body_type = body_type, fixtures = {}})
+        local body = newBodyObject({world = world, x = x, y = y, body_type = body_type, fixtures = {}, joints = {}})
         world.bodies[#world.bodies + 1] = body
         return body
     end
@@ -251,10 +255,22 @@ local function install()
         return newPolygon({points = {-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2, h / 2}})
     end
 
-    function love.physics.newMouseJoint(body, x, y)
-        local joint = newJointObject({world = body.world, x1 = x, y1 = y})
-        body.world.joints[#body.world.joints + 1] = joint
-        return joint
+    for _, name in ipairs({'DistanceJoint', 'RevoluteJoint', 'PrismaticJoint', 'WeldJoint', 'RopeJoint', 'WheelJoint',
+        'FrictionJoint', 'MotorJoint', 'MouseJoint', 'PulleyJoint', 'GearJoint'}) do
+        local new = class(name, merge({}, joint_methods))
+        love.physics['new' .. name] = function(a, b, ...)
+            local args = {...}
+            local joint = new({world = a.world, args = {a, b, ...}, bodies = {}})
+            if name == 'MouseJoint' then joint.x1, joint.y1 = b, args[1] end
+            for _, body in ipairs({a, name ~= 'MouseJoint' and b or false}) do
+                if body and body.joints then
+                    body.joints[#body.joints + 1] = joint
+                    joint.bodies[#joint.bodies + 1] = body
+                end
+            end
+            joint.world.joints[#joint.world.joints + 1] = joint
+            return joint
+        end
     end
 
     function love.math.newRandomGenerator() return newGenerator({}) end

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Named joint constructors (`newDistanceJoint`, `newRevoluteJoint`, ... `newGearJoint`), joint options (`limits`, `motor`, `frequency`, `damping_ratio`), `World:getJointsOf(collider)` and the `MotorJoint` type in `addJoint`.
+- Builders `World:newRope`, `newChain`, `newBridge` and `newRagdoll`, each returning an assembly with `parts`, `joints` and `destroy()`.
+
 ## 0.7.0
 
 Effectors. Purely additive.

@@ -3,7 +3,7 @@ std = 'min'
 max_line_length = false
 
 -- `table.unpack or unpack` is how the source reaches unpack on every Lua version.
-read_globals = { 'love', 'unpack', table = { fields = { 'unpack' } } }
+read_globals = { 'love', 'unpack', table = { fields = { 'unpack' } }, math = { fields = { 'atan2' } } }
 
 -- Vendored third-party code is checked by the compiler only, and the type
 -- definitions are declarations for the language server, not runnable code.
