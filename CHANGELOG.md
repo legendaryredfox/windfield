@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
+
+Effectors. Purely additive.
 
 ### Added
 
