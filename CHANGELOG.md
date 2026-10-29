@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+Character controller helpers. Purely additive.
 
 ### Added
 
