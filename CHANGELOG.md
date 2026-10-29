@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
+
+LÖVE 12 support. Source compatible with LÖVE 11.5.
 
 ### Added
 

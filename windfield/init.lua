@@ -84,7 +84,7 @@ else
 end
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.12.0'
+wf._VERSION = '0.13.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
