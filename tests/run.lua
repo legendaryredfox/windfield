@@ -41,6 +41,17 @@ test('the module does not leak globals', function()
     eq(rawget(_G, 'Collider'), nil, 'Collider global')
 end)
 
+test('the meter is set by the first world and by options.meter, never reset by later worlds', function()
+    love.physics.setMeter(30)
+    love.physics.meter_calls = 0
+    wf.newWorld(0, 0, true, {meter = 64})
+    eq(love.physics.getMeter(), 64, 'options.meter')
+    love.physics.setMeter(50)
+    wf.newWorld(0, 0, true)
+    eq(love.physics.getMeter(), 50, 'second world without options')
+    raises(function() wf.newWorld(0, 0, true, {meter = 'x'}) end, 'invalid meter')
+end)
+
 test('newWorld has the Default class and forwards Box2D methods', function()
     local world = newWorld()
     truthy(world.collision_classes.Default, 'Default class')
@@ -106,6 +117,106 @@ test('rectangle collider body sits at the rectangle center and honors settings',
     eq(y, 210, 'y')
     eq(collider.collision_class, 'Wall')
     eq(collider.body.body_type, 'static')
+end)
+
+test('settings keys map to Box2D calls', function()
+    local world = newWorld()
+    local payload = {}
+    local collider = world:newRectangleCollider(0, 0, 10, 10, {
+        bullet = true, fixed_rotation = true, gravity_scale = 0.5, linear_damping = 1, angular_damping = 2,
+        sleeping_allowed = false, active = false, angle = 1.5, restitution = 0.3, friction = 0.4, density = 2,
+        object = payload,
+    })
+    local body_calls = collider.body.calls
+    eq(body_calls.setBullet[1], true, 'bullet')
+    eq(body_calls.setFixedRotation[1], true, 'fixed_rotation')
+    eq(body_calls.setGravityScale[1], 0.5, 'gravity_scale')
+    eq(body_calls.setLinearDamping[1], 1, 'linear_damping')
+    eq(body_calls.setAngularDamping[1], 2, 'angular_damping')
+    eq(body_calls.setSleepingAllowed[1], false, 'sleeping_allowed')
+    eq(body_calls.setActive[1], false, 'active')
+    eq(body_calls.setAngle[1], 1.5, 'angle')
+    truthy(body_calls.resetMassData, 'mass reset after density')
+    local fixture_calls = collider.fixtures.main.calls
+    eq(fixture_calls.setRestitution[1], 0.3, 'restitution')
+    eq(fixture_calls.setFriction[1], 0.4, 'friction')
+    eq(fixture_calls.setDensity[1], 2, 'density')
+    eq(collider.sensors.main.calls, nil, 'sensor fixture is left alone')
+    eq(collider:getObject(), payload, 'object')
+end)
+
+test('settings without the new keys make no extra Box2D calls', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5, {body_type = 'static'})
+    eq(collider.body.calls, nil, 'body calls')
+    eq(collider.fixtures.main.calls, nil, 'fixture calls')
+end)
+
+test('unknown settings keys raise and leave no body behind', function()
+    local world = newWorld()
+    local before = #world:getBodies()
+    raises(function() world:newCircleCollider(0, 0, 5, {restitutoin = 1}) end, 'typo')
+    eq(#world:getBodies(), before, 'bodies')
+end)
+
+test('step runs fixed updates from accumulated time', function()
+    local world = newWorld()
+    local updates = 0
+    world.box2d_world.step_hook = function() updates = updates + 1 end
+    eq(world:step(1 / 30), 2, 'steps for 1/30')
+    eq(updates, 2, 'updates')
+    eq(world:step(1 / 120), 0, 'half a step')
+    eq(world:getAlpha(), 0.5, 'alpha after half a step')
+    eq(world:step(1 / 120), 1, 'second half')
+    eq(updates, 3, 'updates after halves')
+end)
+
+test('step caps the number of updates and drops the excess time', function()
+    local world = newWorld()
+    local updates = 0
+    world.box2d_world.step_hook = function() updates = updates + 1 end
+    eq(world:step(10), 5, 'default max_steps')
+    eq(world:step(0), 0, 'accumulator was clamped')
+    truthy(world:getAlpha() < 1, 'alpha below one')
+    world:setFixedStep(1 / 30, 2)
+    updates = 0
+    eq(world:step(1), 2, 'custom max_steps')
+    eq(world:step(1 / 30), 1, 'custom fixed step')
+    raises(function() world:setFixedStep(0, 5) end, 'zero step')
+    raises(function() world:setFixedStep(1 / 60, 0) end, 'zero max_steps')
+end)
+
+test('interpolated colliders render between the last two fixed steps', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    local other = world:newCircleCollider(0, 0, 5)
+    world.box2d_world.step_hook = function()
+        collider.body.x = collider.body.x + 10
+        collider.body.angle = (collider.body.angle or 0) + 1
+        other.body.x = other.body.x + 10
+    end
+    collider:setInterpolated(true)
+    truthy(collider:isInterpolated(), 'isInterpolated')
+    world:step(1 / 60)
+    local x = collider:getRenderPosition()
+    eq(x, 0, 'alpha 0 returns the previous position')
+    eq(collider:getRenderAngle(), 0, 'alpha 0 returns the previous angle')
+    world:step(1 / 60 + 1 / 120)
+    local rx = collider:getRenderPosition()
+    eq(rx, 15, 'half way between 10 and 20')
+    eq(collider:getRenderAngle(), 1.5, 'half way between angles')
+    eq(select(1, other:getRenderPosition()), 20, 'colliders that are not interpolated render at their position')
+    collider:setInterpolated(false)
+    eq(select(1, collider:getRenderPosition()), 20, 'interpolation off')
+end)
+
+test('destroying an interpolated collider releases it', function()
+    local world = newWorld()
+    local collider = world:newCircleCollider(0, 0, 5)
+    collider:setInterpolated(true)
+    collider:destroy()
+    eq(next(world.interpolated), nil, 'interpolated set')
+    world:step(1 / 60)
 end)
 
 test('ignores produce category and mask entries', function()

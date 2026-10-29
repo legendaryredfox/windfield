@@ -23,6 +23,7 @@ SOFTWARE.
 ]]--
 
 local unpack = table.unpack or unpack
+local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
 wf._VERSION = '0.1.0'
@@ -57,8 +58,8 @@ local function collisionData(event)
             nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
 end
 
-function wf.newWorld(xg, yg, sleep)
-    local world = wf.World.new(wf, xg, yg, sleep)
+function wf.newWorld(xg, yg, sleep, options)
+    local world = wf.World.new(wf, xg, yg, sleep, options)
 
     world.box2d_world:setCallbacks(world.collisionOnEnter, world.collisionOnExit, world.collisionPre, world.collisionPost)
     world:collisionClear()
@@ -67,7 +68,7 @@ function wf.newWorld(xg, yg, sleep)
     return world
 end
 
-function World.new(wf, xg, yg, sleep)
+function World.new(wf, xg, yg, sleep, options)
     local self = {}
     local settings = settings or {}
     self.wf = wf
@@ -81,6 +82,10 @@ function World.new(wf, xg, yg, sleep)
     self.step_events = {}
     self.stepping = false
     self.destroy_queue = {}
+    self.fixed_dt = 1/60
+    self.max_steps = 5
+    self.accumulator = 0
+    self.interpolated = {}
     self.query_results = {}
     self.query_callback = function(fixture)
         local collider = fixture:getUserData()
@@ -103,7 +108,10 @@ function World.new(wf, xg, yg, sleep)
     self.is_sensor_memo = {}
     self.query_debug_draw = {}
 
-    love.physics.setMeter(32)
+    local meter = options and options.meter
+    if meter ~= nil and (type(meter) ~= 'number' or meter <= 0) then error('options.meter must be a positive number.') end
+    if meter or not meter_initialized then love.physics.setMeter(meter or 32) end
+    meter_initialized = true
     self.box2d_world = love.physics.newWorld(xg, yg, sleep) 
 
     world_metatable = world_metatable or {__index = newProxyIndex(World, {{field = 'box2d_world', methods = self.box2d_world.__index}})}
@@ -119,6 +127,31 @@ function World:update(dt)
     for i = 1, #queue do queue[i]:_destroy() end
     for i = #queue, 1, -1 do queue[i] = nil end
     if self.has_collision_handlers then self:_dispatchCollisionEvents() end
+end
+
+function World:setFixedStep(dt, max_steps)
+    max_steps = max_steps or 5
+    if type(dt) ~= 'number' or dt <= 0 then error('The fixed step must be a positive number.') end
+    if type(max_steps) ~= 'number' or max_steps < 1 then error('max_steps must be at least 1.') end
+    self.fixed_dt = dt
+    self.max_steps = max_steps
+end
+
+function World:step(dt)
+    local fixed, steps = self.fixed_dt, 0
+    self.accumulator = self.accumulator + dt
+    while self.accumulator >= fixed and steps < self.max_steps do
+        for collider in pairs(self.interpolated) do collider:_snapshot() end
+        self:update(fixed)
+        self.accumulator = self.accumulator - fixed
+        steps = steps + 1
+    end
+    if self.accumulator >= fixed then self.accumulator = self.accumulator % fixed end
+    return steps
+end
+
+function World:getAlpha()
+    return self.accumulator / self.fixed_dt
 end
 
 function World:_addCollisionHandler(collision_type, class_a, class_b, fn)
@@ -876,6 +909,34 @@ local function UUID()
     return (("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"):gsub("[xy]", fn))
 end
 
+local body_settings = {
+    bullet = 'setBullet', fixed_rotation = 'setFixedRotation', gravity_scale = 'setGravityScale',
+    linear_damping = 'setLinearDamping', angular_damping = 'setAngularDamping',
+    sleeping_allowed = 'setSleepingAllowed', active = 'setActive', angle = 'setAngle',
+}
+local fixture_settings = {restitution = 'setRestitution', friction = 'setFriction', density = 'setDensity'}
+
+local function checkSettings(settings)
+    if not settings then return end
+    for key in pairs(settings) do
+        if key ~= 'collision_class' and key ~= 'body_type' and key ~= 'object'
+            and not body_settings[key] and not fixture_settings[key] then
+            error('Unknown collider setting ' .. tostring(key) .. '.', 3)
+        end
+    end
+end
+
+local function applySettings(body, fixture, settings)
+    if not settings then return end
+    for key, method in pairs(body_settings) do
+        if settings[key] ~= nil then body[method](body, settings[key]) end
+    end
+    for key, method in pairs(fixture_settings) do
+        if settings[key] ~= nil then fixture[method](fixture, settings[key]) end
+    end
+    if settings.density ~= nil then body:resetMassData() end
+end
+
 function Collider.new(world, collider_type, ...)
     local self = {}
     self.id = UUID()
@@ -927,6 +988,7 @@ function Collider.new(world, collider_type, ...)
         shape = love.physics.newChainShape(args[2], unpack(args[1]))
     end
 
+    checkSettings(settings)
     self.collision_class = (settings and settings.collision_class) or 'Default'
     self.body = love.physics.newBody(self.world.box2d_world, x, y, (settings and settings.body_type) or 'dynamic')
 
@@ -940,6 +1002,9 @@ function Collider.new(world, collider_type, ...)
     local sensor = love.physics.newFixture(self.body, shape)
     sensor:setSensor(true)
     sensor:setUserData(self)
+
+    applySettings(self.body, fixture, settings)
+    self.object = settings and settings.object
 
     self.shapes['main'] = shape
     self.fixtures['main'] = fixture
@@ -1095,6 +1160,37 @@ function Collider:removeShape(shape_name)
 end
 
 -- Box2D forbids changing the world during a step, so destroying from a collision callback waits for the step to end.
+function Collider:_snapshot()
+    self.prev_x, self.prev_y = self.body:getPosition()
+    self.prev_angle = self.body:getAngle()
+end
+
+function Collider:setInterpolated(interpolated)
+    if interpolated then
+        self:_snapshot()
+        self.world.interpolated[self] = true
+    else
+        self.world.interpolated[self] = nil
+    end
+end
+
+function Collider:isInterpolated()
+    return self.world.interpolated[self] == true
+end
+
+function Collider:getRenderPosition()
+    local x, y = self.body:getPosition()
+    if not self.world.interpolated[self] then return x, y end
+    local alpha = self.world:getAlpha()
+    return self.prev_x + (x - self.prev_x) * alpha, self.prev_y + (y - self.prev_y) * alpha
+end
+
+function Collider:getRenderAngle()
+    local angle = self.body:getAngle()
+    if not self.world.interpolated[self] then return angle end
+    return self.prev_angle + (angle - self.prev_angle) * self.world:getAlpha()
+end
+
 function Collider:destroy()
     if not self.body or self.destroy_pending then return end
     local world = self.world
@@ -1107,6 +1203,7 @@ function Collider:destroy()
 end
 
 function Collider:_destroy()
+    self.world.interpolated[self] = nil
     self.collision_stay = nil
     self.enter_collision_data = nil
     self.exit_collision_data = nil

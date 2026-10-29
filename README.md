@@ -14,11 +14,15 @@
    * [One-way Platforms](#one-way-platforms)
 * [Documentation](#documentation)
    * [World](#world)
-      * [newWorld](#newworldxg-yg-sleep)
+      * [newWorld](#newworldxg-yg-sleep-options)
       * [update](#updatedt)
+      * [step](#stepdt)
+      * [setFixedStep](#setfixedstepdt-max_steps)
+      * [getAlpha](#getalpha)
       * [draw](#drawalpha)
       * [destroy](#destroy)
       * [addCollisionClass](#addcollisionclasscollision_class_name-collision_class)
+      * [Collider settings](#collider-settings)
       * [newCircleCollider](#newcirclecolliderx-y-r)
       * [newRectangleCollider](#newrectanglecolliderx-y-w-h)
       * [newBSGRectangleCollider](#newbsgrectanglecolliderx-y-w-h-corner_cut_size)
@@ -46,6 +50,10 @@
       * [getExits](#getexitsother_collision_class_name)
       * [stay](#stayother_collision_class_name)
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
+      * [setInterpolated](#setinterpolatedinterpolated)
+      * [isInterpolated](#isinterpolated)
+      * [getRenderPosition](#getrenderposition)
+      * [getRenderAngle](#getrenderangle)
       * [setPreSolve](#setpresolvecallback)
       * [setPostSolve](#setpostsolvecallback)
       * [addShape](#addshapeshape_name-shape_type-)
@@ -337,7 +345,7 @@ On top of containing all functions exposed in this documentation it also contain
 
 ---
 
-#### `.newWorld(xg, yg, sleep)`
+#### `.newWorld(xg, yg, sleep, options)`
 
 Creates a new World.
 
@@ -350,6 +358,7 @@ Arguments:
 * `xg` `(number)` - The world's x gravity component
 * `yg` `(number)` - The world's y gravity component
 * `sleep=true` `(boolean)` - If the world's bodies are allowed to sleep or not
+* `options` `(table)` - Optional. `options.meter` `(number)` sets the LÖVE physics meter (pixels per meter, default `32`). The meter is global to LÖVE: the first world sets it to `32` when no option is given, and later worlds leave it alone, so a game that calls `love.physics.setMeter` after the first world keeps its value
 
 Returns:
 
@@ -369,6 +378,55 @@ world:update(dt)
 Arguments:
 
 * `dt` `(number)` - The time step delta
+
+---
+
+#### `:step(dt)`
+
+Updates the world with a fixed time step. The time `dt` is added to an accumulator and `update` runs with the fixed step as many times as fit, at most `max_steps` times. Time beyond that limit is dropped, so a long frame cannot make the next frame even longer. `update(dt)` keeps working as before and the two should not be mixed on the same world.
+
+```lua
+function love.update(dt)
+    local steps = world:step(dt)
+end
+```
+
+Arguments:
+
+* `dt` `(number)` - The frame time to add
+
+Returns:
+
+* `steps` `(number)` - How many fixed updates ran
+
+---
+
+#### `:setFixedStep(dt, max_steps)`
+
+Sets the fixed step used by `step`.
+
+```lua
+world:setFixedStep(1/120, 8)
+```
+
+Arguments:
+
+* `dt=1/60` `(number)` - The fixed time step, greater than zero
+* `max_steps=5` `(number)` - The most updates `step` runs in one call, at least 1
+
+---
+
+#### `:getAlpha()`
+
+Returns how far the accumulator is into the next fixed step, from 0 up to but not including 1. Use it to draw between the last two physics states.
+
+```lua
+local alpha = world:getAlpha()
+```
+
+Returns:
+
+* `alpha` `(number)` - The leftover fraction of a fixed step
 
 ---
 
@@ -416,6 +474,33 @@ Settings:
 * `[exit]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class when they exit contact with each other
 * `[pre]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class right before collision response is applied
 * `[post]` `(table[string])` - The collision classes that will generate collision events with the collider of this collision class right after collision response is applied
+
+---
+
+#### Collider settings
+
+Every collider constructor (`newCircleCollider`, `newRectangleCollider`, `newBSGRectangleCollider`, `newPolygonCollider`, `newLineCollider`, `newChainCollider`) takes an optional `settings` table as its last argument:
+
+```lua
+box = world:newRectangleCollider(100, 100, 50, 50, {collision_class = 'Player', body_type = 'dynamic', fixed_rotation = true, friction = 0.2})
+```
+
+* `collision_class='Default'` `(string)` - The name of the collision class
+* `body_type='dynamic'` `(string)` - `'dynamic'`, `'static'` or `'kinematic'`
+* `bullet` `(boolean)` - Continuous collision detection against other moving bodies (`setBullet`)
+* `fixed_rotation` `(boolean)` - Prevents the body from rotating (`setFixedRotation`)
+* `gravity_scale` `(number)` - Multiplier applied to the world's gravity (`setGravityScale`)
+* `linear_damping` `(number)` - `setLinearDamping`
+* `angular_damping` `(number)` - `setAngularDamping`
+* `sleeping_allowed` `(boolean)` - `setSleepingAllowed`
+* `active` `(boolean)` - `setActive`
+* `angle` `(number)` - The initial angle in radians (`setAngle`)
+* `restitution` `(number)` - `setRestitution` on the solid fixture
+* `friction` `(number)` - `setFriction` on the solid fixture
+* `density` `(number)` - `setDensity` on the solid fixture; the body mass is recomputed
+* `object` `(any)` - Stored on the collider, same as `setObject`
+
+Keys that are not listed raise an error, so a typo such as `restitutoin` is caught when the collider is created.
 
 ---
 
@@ -939,6 +1024,55 @@ Arguments:
 Returns:
 
 * `collision_data_list` `(table[table])` - The data of every collider this collider is currently touching, one table per collider with the fields described in `getEnterCollisionData`. Usually this list will be of size 1, but sometimes this collider will be staying in contact with multiple other colliders on the same frame, and so those multiple stay events (with multiple colliders) are returned. Contacts are tracked from the enter and exit events, so `enter` does not have to be called for `stay` to work.
+
+---
+
+#### `:setInterpolated(interpolated)`
+
+Makes the world remember this collider's position and angle at the start of every fixed step done by `world:step`, so `getRenderPosition` and `getRenderAngle` can blend between the last two states. Interpolation only follows `world:step`; with `world:update` the previous state is not refreshed.
+
+```lua
+collider:setInterpolated(true)
+```
+
+Arguments:
+
+* `interpolated` `(boolean)` - Whether to interpolate this collider
+
+---
+
+#### `:isInterpolated()`
+
+Returns whether this collider is interpolated.
+
+Returns:
+
+* `interpolated` `(boolean)` - The interpolation flag
+
+---
+
+#### `:getRenderPosition()`
+
+Returns the position to draw the collider at: the position between the last two fixed steps for an interpolated collider, using `world:getAlpha()`, and the plain `getPosition` otherwise.
+
+```lua
+local x, y = collider:getRenderPosition()
+```
+
+Returns:
+
+* `x` `(number)` - The x position
+* `y` `(number)` - The y position
+
+---
+
+#### `:getRenderAngle()`
+
+Returns the angle to draw the collider at, interpolated the same way as `getRenderPosition`.
+
+Returns:
+
+* `angle` `(number)` - The angle in radians
 
 ---
 

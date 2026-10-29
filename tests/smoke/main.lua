@@ -78,6 +78,33 @@ function love.load()
     check('collider keeps its own fields', sample.type == 'Rectangle' and sample.body ~= nil and sample.shape:type() == 'PolygonShape')
     sample:destroy()
 
+    local tagged = {}
+    local configured = world:newRectangleCollider(500, 50, 20, 20, {
+        bullet = true, fixed_rotation = true, gravity_scale = 0.5, linear_damping = 1, angular_damping = 2,
+        sleeping_allowed = false, angle = 1.5, restitution = 0.3, friction = 0.4, density = 2, object = tagged,
+    })
+    local fixture = configured.fixture
+    check('settings keys reach Box2D',
+        configured:isBullet() and configured:isFixedRotation() and configured:getGravityScale() == 0.5
+        and configured:getLinearDamping() == 1 and configured:getAngularDamping() == 2
+        and not configured:isSleepingAllowed() and math.abs(configured:getAngle() - 1.5) < 1e-6
+        and math.abs(fixture:getRestitution() - 0.3) < 1e-6 and math.abs(fixture:getFriction() - 0.4) < 1e-6
+        and fixture:getDensity() == 2 and configured:getObject() == tagged)
+    check('density settings update the body mass', configured:getMass() > 0)
+    check('unknown settings key raises', not pcall(world.newCircleCollider, world, 0, 0, 5, {restitutoin = 1}))
+    configured:destroy()
+
+    local step_world = wf.newWorld(0, 500, true)
+    local faller = step_world:newCircleCollider(0, 0, 5)
+    faller:setInterpolated(true)
+    check('step runs two fixed updates for 1/30', step_world:step(1 / 30) == 2)
+    local y_before = select(2, faller:getPosition())
+    check('step runs one update and keeps the remainder', step_world:step(1 / 60 + 1 / 120) == 1 and math.abs(step_world:getAlpha() - 0.5) < 1e-6)
+    local y_now = select(2, faller:getPosition())
+    local y_render = select(2, faller:getRenderPosition())
+    check('render position sits between the last two steps', y_render > y_before and y_render < y_now, y_before .. ' ' .. y_render .. ' ' .. y_now)
+    step_world:destroy()
+
     late_world = wf.newWorld(0, 500, true)
     late_world:addCollisionClass('X')
     early_collider = late_world:newCircleCollider(100, 0, 5, {collision_class = 'X'})

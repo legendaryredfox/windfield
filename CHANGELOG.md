@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `wf.newWorld(xg, yg, sleep, options)`: `options.meter` sets the LÖVE physics meter.
+- Collider `settings` keys: `bullet`, `fixed_rotation`, `gravity_scale`, `linear_damping`, `angular_damping`, `sleeping_allowed`, `active`, `angle`, `restitution`, `friction`, `density`, `object`.
+- `World:step(dt)`, `World:setFixedStep(dt, max_steps)` and `World:getAlpha()`: fixed time step stepping with an accumulator and a step cap.
+- `Collider:setInterpolated`, `isInterpolated`, `getRenderPosition` and `getRenderAngle`: render interpolation between fixed steps.
+
+### Changed
+
+- Collider constructors raise an error for unknown `settings` keys. Before, they were ignored.
+- Creating a world no longer resets the physics meter to `32` when the meter was already set by an earlier world.
+
 ## 0.1.0
 
 Performance and event handling foundations. Public API stays source compatible; the behavior changes are listed below.

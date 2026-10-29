@@ -9,6 +9,22 @@ local function class(name, methods)
     return function(object) return setmetatable(object, methods) end
 end
 
+local function recorders(names)
+    local methods = {}
+    for _, name in ipairs(names) do
+        methods[name] = function(self, ...)
+            self.calls = self.calls or {}
+            self.calls[name] = {...}
+        end
+    end
+    return methods
+end
+
+local function merge(target, source)
+    for k, v in pairs(source) do target[k] = v end
+    return target
+end
+
 local function worldPoints(body, ...)
     local points, out = {...}, {}
     for i = 1, #points, 2 do
@@ -52,8 +68,13 @@ local function install()
         destroy = function(self) self.destroyed = true end,
     })
 
-    local newBodyObject = class('Body', {
+    local body_methods = recorders({'setBullet', 'setFixedRotation', 'setGravityScale', 'setLinearDamping',
+        'setAngularDamping', 'setSleepingAllowed', 'setActive', 'setAngle', 'resetMassData'})
+    local fixture_methods = recorders({'setRestitution', 'setFriction', 'setDensity'})
+
+    local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
+        getAngle = function(self) return self.angle or 0 end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
         getFixtures = function(self) return self.fixtures end,
         getWorldPoints = worldPoints,
@@ -67,9 +88,9 @@ local function install()
             remove(self.world.bodies, self)
             self.destroyed = true
         end,
-    })
+    }, body_methods))
 
-    local newFixtureObject = class('Fixture', {
+    local newFixtureObject = class('Fixture', merge({
         probe = function() return 'fixture' end,
         probeFixtureBody = function() return 'fixture' end,
         setCategory = function(self, ...) self.category = {...} end,
@@ -94,7 +115,7 @@ local function install()
             return x1, y1, x2, y2
         end,
         destroy = function(self) remove(self.body.fixtures, self) end,
-    })
+    }, fixture_methods))
 
     local polygonMethods = {
         getPoints = function(self) return unpack(self.points) end,
@@ -121,7 +142,13 @@ local function install()
         random = function(_, n) return math.random(n) end,
     })
 
-    function love.physics.setMeter() end
+    local meter = 30
+    love.physics.meter_calls = 0
+    function love.physics.setMeter(m)
+        meter = m
+        love.physics.meter_calls = love.physics.meter_calls + 1
+    end
+    function love.physics.getMeter() return meter end
 
     function love.physics.newWorld(xg, yg)
         return newWorldObject({gx = xg, gy = yg, bodies = {}, joints = {}})
