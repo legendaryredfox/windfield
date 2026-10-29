@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+Character controller helpers. Purely additive.
+
+### Added
+
+- `Collider:getGround(max_slope)`: grounded state, ground normal, slope angle and ground collider from the contacts.
+- `Collider:moveKinematic(x, y, angle, dt)` and `Collider:driveTo(x, y, angle, strength)`: reach a pose over `dt`, or follow a pose with soft keying.
+- `wf.newTimer(duration)`: countdown timers for coyote time and jump buffering.
+
 ## 0.4.0
 
 Exact shape queries and shape casts. Purely additive.

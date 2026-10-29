@@ -220,6 +220,40 @@ function love.load()
     check('shapeCast: moving away', cast_world:shapeCast({type = 'circle', radius = 10}, 100, 150, -400, 0) == nil)
     check('shapeCast: class filter', cast_world:shapeCast({type = 'circle', radius = 10}, 100, 150, 400, 0, {'All', except = {'Wall'}}) == nil)
     cast_world:destroy()
+
+    local char_world = wf.newWorld(0, 500, true)
+    local floor = char_world:newRectangleCollider(0, 300, 400, 20, {body_type = 'static'})
+    local ramp = char_world:newPolygonCollider({500, 320, 900, 320, 900, 320 - 400 * math.tan(math.rad(30))}, {body_type = 'static'})
+    local walker = char_world:newCircleCollider(100, 280, 10)
+    local slider = char_world:newCircleCollider(800, 100, 10, {friction = 1})
+    for _ = 1, 90 do char_world:update(1 / 60) end
+    local flat = walker:getGround()
+    check('getGround on flat ground', flat.grounded and flat.collider == floor and math.abs(flat.ny + 1) < 0.01 and flat.angle < 0.02, flat.grounded and flat.angle or 'not grounded')
+    local slope = slider:getGround()
+    check('getGround on a 30 degree slope', slope.grounded and slope.collider == ramp and math.abs(math.deg(slope.angle) - 30) < 1, slope.grounded and math.deg(slope.angle) or 'not grounded')
+    check('getGround rejects a slope steeper than max_slope', not slider:getGround(math.rad(20)).grounded)
+    check('getGround is false in the air', not char_world:newCircleCollider(100, 0, 5):getGround().grounded)
+
+    local lift = char_world:newRectangleCollider(200, 100, 20, 20, {body_type = 'kinematic'})
+    lift:moveKinematic(250, 130, 1, 1 / 60)
+    char_world:update(1 / 60)
+    local mx, my = lift:getPosition()
+    check('moveKinematic reaches the target within one step', math.abs(mx - 250) < 0.01 and math.abs(my - 130) < 0.01 and math.abs(lift:getAngle() - 1) < 0.001,
+        mx .. ' ' .. my .. ' ' .. lift:getAngle())
+    lift:moveKinematic(1000, 130, nil, 1 / 60)
+    char_world:update(1 / 60)
+    check('moveKinematic is capped by the Box2D limit of 2 meters per step', math.abs(lift:getPosition() - 250 - 2 * love.physics.getMeter()) < 0.5, lift:getPosition())
+    char_world:destroy()
+
+    local drive_world = wf.newWorld(0, 0, true)
+    local limb = drive_world:newRectangleCollider(0, 0, 20, 20)
+    for _ = 1, 180 do
+        limb:driveTo(300, 200, 0.5, 8)
+        drive_world:update(1 / 60)
+    end
+    local lx, ly = limb:getPosition()
+    check('driveTo converges on the target pose', math.abs(lx - 300) < 1 and math.abs(ly - 200) < 1 and math.abs(limb:getAngle() - 0.5) < 0.01, lx .. ' ' .. ly .. ' ' .. limb:getAngle())
+    drive_world:destroy()
     ray_world:destroy()
 
     local filter_world = wf.newWorld(0, 300, true)

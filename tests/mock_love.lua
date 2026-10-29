@@ -79,12 +79,13 @@ local function install()
     })
 
     local body_methods = recorders({'setBullet', 'setFixedRotation', 'setGravityScale', 'setLinearDamping',
-        'setAngularDamping', 'setSleepingAllowed', 'setActive', 'setAngle', 'resetMassData'})
+        'setAngularDamping', 'setSleepingAllowed', 'setActive', 'setAngle', 'resetMassData', 'setAngularVelocity'})
     local fixture_methods = recorders({'setRestitution', 'setFriction', 'setDensity'})
 
     local newBodyObject = class('Body', merge({
         getPosition = function(self) return self.x, self.y end,
         getAngle = function(self) return self.angle or 0 end,
+        getContacts = function(self) return self.contacts or {} end,
         getType = function(self) return self.body_type or 'dynamic' end,
         isAwake = function(self) return not self.asleep end,
         setPosition = function(self, x, y) self.x, self.y = x, y end,
@@ -274,6 +275,7 @@ local function install()
             return unpack(self.positions)
         end,
         isTouching = function(self) return self.touching ~= false end,
+        getFixtures = function(self) return unpack(self.fixtures) end,
         setEnabled = function(self, enabled) self.enabled = enabled end,
         isEnabled = function(self) return self.enabled ~= false end,
         setTangentSpeed = function(self, speed) self.tangent_speed = speed end,

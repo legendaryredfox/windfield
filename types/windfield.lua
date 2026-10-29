@@ -10,6 +10,16 @@ local wf = {}
 ---@class windfield.WorldOptions
 ---@field meter? number LÖVE physics meter in pixels per meter. Default 32. Global to LÖVE.
 
+---@class windfield.Timer
+---@field start fun(self: windfield.Timer, duration?: number)
+---@field update fun(self: windfield.Timer, dt: number)
+---@field isActive fun(self: windfield.Timer): boolean
+---@field consume fun(self: windfield.Timer): boolean
+
+---@param duration number Seconds, greater than zero.
+---@return windfield.Timer
+function wf.newTimer(duration) end
+
 ---@param xg number
 ---@param yg number
 ---@param sleep? boolean Default true.
@@ -349,6 +359,32 @@ function Collider:setObject(object) end
 
 ---@return any
 function Collider:getObject() end
+
+---@class windfield.Ground
+---@field grounded boolean
+---@field nx? number Normal pointing from the ground to the collider.
+---@field ny? number
+---@field angle? number Slope in radians, 0 is flat.
+---@field collider? windfield.Collider
+---@field x? number First contact point.
+---@field y? number
+---@field contact? love.Contact Only valid until the next step.
+
+---@param max_slope? number Radians from flat. Default math.rad(50).
+---@return windfield.Ground
+function Collider:getGround(max_slope) end
+
+---@param x number Target of the body center.
+---@param y number
+---@param angle? number Radians, nil leaves the rotation alone.
+---@param dt number Seconds to get there, greater than zero.
+function Collider:moveKinematic(x, y, angle, dt) end
+
+---@param x number Target of the body center.
+---@param y number
+---@param angle? number Radians, nil leaves the rotation alone.
+---@param strength number Gain in 1/second.
+function Collider:driveTo(x, y, angle, strength) end
 
 ---@param interpolated boolean
 function Collider:setInterpolated(interpolated) end

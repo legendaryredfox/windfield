@@ -26,7 +26,7 @@ local unpack = table.unpack or unpack
 local meter_initialized = false
 local path = ... .. '.' 
 local wf = {} 
-wf._VERSION = '0.4.0'
+wf._VERSION = '0.5.0'
 wf.Math = require(path .. 'mlib.mlib') 
 
 -- Resolves LÖVE object methods on first use and caches them, so instances do not carry one closure per method.
@@ -56,6 +56,34 @@ local world_metatable
 local function collisionData(event)
     return {collider = event.collider_2, contact = event.contact,
             nx = event.nx, ny = event.ny, x1 = event.x1, y1 = event.y1, x2 = event.x2, y2 = event.y2}
+end
+
+local timer_methods = {}
+local timer_metatable = {__index = timer_methods}
+
+function wf.newTimer(duration)
+    if type(duration) ~= 'number' or duration <= 0 then error('The timer duration must be a positive number.') end
+    return setmetatable({duration = duration, left = 0}, timer_metatable)
+end
+
+function timer_methods:start(duration)
+    self.left = duration or self.duration
+end
+
+function timer_methods:update(dt)
+    if self.left > 0 then self.left = math.max(0, self.left - dt) end
+end
+
+function timer_methods:isActive()
+    return self.left > 0
+end
+
+function timer_methods:consume()
+    if self.left > 0 then
+        self.left = 0
+        return true
+    end
+    return false
 end
 
 function wf.newWorld(xg, yg, sleep, options)
@@ -1487,6 +1515,53 @@ local function collectEvents(collider, other_collision_class_name, collision_typ
         end
     end
     return out
+end
+
+function Collider:getGround(max_slope)
+    max_slope = max_slope or math.rad(50)
+    local gx, gy = self.world:getGravity()
+    local gravity = math.sqrt(gx * gx + gy * gy)
+    local upx, upy = 0, -1
+    if gravity > 0 then upx, upy = -gx / gravity, -gy / gravity end
+
+    local best, best_dot
+    for _, contact in ipairs(self.body:getContacts()) do
+        if contact:isTouching() and contact:isEnabled() then
+            local fixture_a, fixture_b = contact:getFixtures()
+            if not (fixture_a:isSensor() or fixture_b:isSensor()) then
+                local nx, ny = contact:getNormal()
+                local other = fixture_a
+                if fixture_a:getBody() == self.body then nx, ny, other = -nx, -ny, fixture_b end
+                local dot = nx * upx + ny * upy
+                if dot > math.cos(max_slope) and (not best_dot or dot > best_dot) then
+                    best_dot = dot
+                    best = {nx = nx, ny = ny, collider = other:getUserData(), contact = contact}
+                end
+            end
+        end
+    end
+    if not best then return {grounded = false} end
+    best.grounded = true
+    best.angle = math.acos(math.min(1, best_dot))
+    best.x, best.y = best.contact:getPositions()
+    return best
+end
+
+local function shortestAngle(from, to)
+    return (to - from + math.pi) % (2 * math.pi) - math.pi
+end
+
+function Collider:moveKinematic(x, y, angle, dt)
+    if type(dt) ~= 'number' or dt <= 0 then error('moveKinematic needs a positive dt.') end
+    local current_x, current_y = self.body:getPosition()
+    self.body:setLinearVelocity((x - current_x) / dt, (y - current_y) / dt)
+    if angle then self.body:setAngularVelocity(shortestAngle(self.body:getAngle(), angle) / dt) end
+end
+
+function Collider:driveTo(x, y, angle, strength)
+    local current_x, current_y = self.body:getPosition()
+    self.body:setLinearVelocity((x - current_x) * strength, (y - current_y) * strength)
+    if angle then self.body:setAngularVelocity(shortestAngle(self.body:getAngle(), angle) * strength) end
 end
 
 function Collider:onEnter(other_collision_class_name, fn)
