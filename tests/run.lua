@@ -758,6 +758,73 @@ test('concave polygon colliders reject bad input without leaving a body behind',
     eq(#world:getBodies(), bodies, 'no bodies left behind')
 end)
 
+test('pools reuse released colliders with fresh state', function()
+    local world = newWorld()
+    local created, resets = 0, {}
+    local pool = world:newPool(function(x, y)
+        created = created + 1
+        return world:newCircleCollider(x, y, 5)
+    end, function(collider, x, y)
+        resets[#resets + 1] = {collider, x, y}
+        collider:setPosition(x, y)
+    end)
+    local first = pool:get(10, 20)
+    eq(created, 1, 'created by the factory')
+    eq(#resets, 0, 'reset is for reused colliders only')
+    first:setLinearVelocity(30, 40)
+    first.collision_events.Default = {{}}
+    first.has_events = true
+
+    pool:release(first)
+    eq(first.body.calls.setActive[1], false, 'released colliders are deactivated')
+    eq(first:isPooled(), true, 'isPooled')
+    eq(pool:size(), 1, 'one released collider')
+    eq(next(first.collision_events), nil, 'events are cleared on release')
+    eq(select(1, first:getLinearVelocity()), 0, 'velocity cleared on release')
+
+    local again = pool:get(50, 60)
+    eq(again, first, 'the released collider is reused')
+    eq(created, 1, 'no new collider')
+    eq(first.body.calls.setActive[1], true, 'reactivated')
+    eq(first:isPooled(), false, 'no longer pooled')
+    eq(#resets, 1, 'reset called once')
+    eq(resets[1][2], 50, 'reset arguments')
+    eq(select(2, first:getPosition()), 60, 'reset moved the collider')
+    eq(pool:size(), 0, 'pool is empty again')
+
+    pool:release(again)
+    pool:release(again)
+    eq(pool:size(), 1, 'releasing twice stores it once')
+    pool:get(0, 0)
+    pool:get(0, 0)
+    eq(created, 2, 'an empty pool creates a new collider')
+end)
+
+test('pools skip destroyed colliders, defer release during the step and can be cleared', function()
+    local world = newWorld()
+    local pool = world:newPool(function() return world:newCircleCollider(0, 0, 5) end)
+    local a, b = pool:get(), pool:get()
+    pool:release(a)
+    pool:release(b)
+    a:destroy()
+    eq(pool:get(), b, 'a destroyed collider is skipped')
+    eq(pool:size(), 0, 'and dropped')
+
+    local c = pool:get()
+    world.box2d_world.step_hook = function() pool:release(c) end
+    world:update(1 / 60)
+    world.box2d_world.step_hook = nil
+    eq(c.body.calls.setActive[1], false, 'released after the step')
+    eq(pool:size(), 1, 'stored after the step')
+    pool:clear()
+    eq(pool:size(), 0, 'cleared')
+    eq(c.body, nil, 'clear destroys the stored colliders')
+
+    raises(function() world:newPool('nope') end, 'factory must be a function')
+    local bad = world:newPool(function() return 5 end)
+    raises(function() bad:get() end, 'factory must return a collider')
+end)
+
 local function forcesOn(collider)
     local sum_x, sum_y = 0, 0
     for _, force in ipairs(collider.body.forces or {}) do
@@ -1576,6 +1643,17 @@ test('a collider with its own draw replaces the debug shape and draw order sorts
     eq(table.concat(sequence, ','), 'second,polygon,first', 'custom draws and debug shapes in draw order')
     eq(callsNamed(calls, 'first')[1].alpha, 128, 'alpha passed to the draw hook')
     eq(love.graphics.getLineWidth(), 1, 'line width after the hook')
+end)
+
+test('draw skips the bodies of pooled colliders', function()
+    local world = newWorld()
+    local pool = world:newPool(function() return world:newRectangleCollider(0, 0, 10, 10) end)
+    local live = pool:get()
+    local parked = pool:get()
+    pool:release(parked)
+    eq(#callsNamed(drawCalls(world), 'polygon'), 1, 'only the active collider is drawn')
+    pool:release(live)
+    eq(#callsNamed(drawCalls(world), 'polygon'), 0, 'nothing is drawn')
 end)
 
 test('a failing constructor leaves no body behind', function()

@@ -51,6 +51,11 @@ adapters.windfield = {
     queryRect = function(w, x, y, bw, bh) return #w:queryRectangleArea(x, y, bw, bh) end,
     ray = function(w, x1, y1, x2, y2) return #w:queryLine(x1, y1, x2, y2) end,
     destroy = function(o) o:destroy() end,
+    newPool = function(w)
+        return w:newPool(function(x, y) return w:newRectangleCollider(x, y, 20, 20) end, function(c, x, y)
+            c:setPosition(x + 10, y + 10)
+        end)
+    end,
 }
 
 adapters.windfield_poll = setmetatable({
@@ -171,7 +176,28 @@ function scenarios.churn(a)
     return {{'time', (t1 - t0) * 1000 / 20, 'ms per frame (300 create + 300 destroy)'}, {'garbage', garbage, 'KB per frame'}}, live
 end
 
-local scenario_order = {'create', 'idle', 'pile', 'query', 'ray', 'churn'}
+function scenarios.poolchurn(a)
+    if not a.newPool then return nil end
+    local w = a.newWorld(0, 0)
+    local pool = a.newPool(w)
+    local live = {}
+    mem()
+    collectgarbage('stop')
+    local g0 = collectgarbage('count')
+    local t0 = love.timer.getTime()
+    for _ = 1, 20 do
+        for i = 1, #live do pool:release(live[i]) end
+        live = {}
+        for i = 1, 300 do live[i] = pool:get((i % 50) * 30, math.floor(i / 50) * 30) end
+        a.update(w, 1 / 60)
+    end
+    local t1 = love.timer.getTime()
+    local garbage = (collectgarbage('count') - g0) / 20
+    collectgarbage('restart')
+    return {{'time', (t1 - t0) * 1000 / 20, 'ms per frame (300 get + 300 release)'}, {'garbage', garbage, 'KB per frame'}}, live
+end
+
+local scenario_order = {'create', 'idle', 'pile', 'query', 'ray', 'churn', 'poolchurn'}
 
 -- Moving boxes ------------------------------------------------------------------
 local movers = {}

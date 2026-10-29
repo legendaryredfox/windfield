@@ -49,6 +49,7 @@
       * [newChain](#newchaindef)
       * [newBridge](#newbridgedef)
       * [newRagdoll](#newragdolldef)
+      * [newPool](#newpoolfactory-reset)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
       * [setQueryDebugDrawing](#setquerydebugdrawingvalue)
       * [onEnter](#onenterclass_a-class_b-callback)
@@ -70,6 +71,7 @@
       * [getStayCollisionData](#getstaycollisiondataother_collision_class_name)
       * [setSensor](#setsensorsensor)
       * [isSensor](#issensor)
+      * [isPooled](#ispooled)
       * [getGround](#getgroundmax_slope)
       * [moveKinematic](#movekinematicx-y-angle-dt)
       * [driveTo](#drivetox-y-angle-strength)
@@ -1235,6 +1237,39 @@ Returns:
 
 ---
 
+#### `:newPool(factory, reset)`
+
+Creates a pool that reuses colliders, for things that appear and disappear all the time such as bullets, particles with physics or enemies. Creating and destroying a collider is the most expensive thing windfield does; taking one from a pool and putting it back is several times cheaper and produces much less garbage.
+
+```lua
+bullets = world:newPool(function(x, y)
+    return world:newCircleCollider(x, y, 3, {collision_class = 'Bullet'})
+end, function(bullet, x, y)
+    bullet:setPosition(x, y)
+end)
+
+local bullet = bullets:get(player_x, player_y)
+bullet:setLinearVelocity(400, 0)
+bullets:release(bullet)
+```
+
+Arguments:
+
+* `factory` `(function)` - Called as `factory(...)` with the arguments of `get` when the pool has no released collider; it has to create and return a collider
+* `[reset]` `(function)` - Called as `reset(collider, ...)` with the arguments of `get` when a released collider is taken again. It must give the collider the state that `factory` would have given a new one (position, velocity, angle, class, and so on). It is not called for colliders the factory has just created
+
+Returns:
+
+* `pool` `(table)` - With these methods:
+  * `get(...)` - Returns a collider: a released one, activated again, or a new one from the factory. Collider handlers registered with `onEnter` and `onExit` stay on the collider, so register them in the factory
+  * `release(collider)` - Deactivates the collider (`setActive(false)`), zeroes its velocities, clears its events and stores it. A released collider is not simulated, does not collide, is not returned by queries or raycasts, generates no events and is not drawn by `world:draw`. Releasing a collider twice does nothing. Called while the world is stepping, the release happens after the step
+  * `size()` - How many released colliders wait in the pool
+  * `clear()` - Destroys the released colliders that are waiting
+
+Colliders that other colliders were touching send them an `exit` event when they are released. As with creating colliders, do not call `get` from the `pre` and `post` callbacks; use `world:onEnter` handlers or code after `update`.
+
+---
+
 #### `:setColliderFilter(fn)`
 
 Sets a function that decides, for every pair of solid colliders that touch, whether the contact is kept. Return `false` to reject it: the colliders pass through each other, no `enter`, `exit`, `pre` or `post` events are generated for that contact and the colliders' pre solve callbacks do not run. Any other return value, including `nil`, keeps the contact. Use it for rules that depend on the game state, like a ghost mode or a one-way platform.
@@ -1520,6 +1555,16 @@ Returns whether the collider is a sensor, either through `setSensor`, the `senso
 Returns:
 
 * `sensor` `(boolean)` - The sensor state
+
+---
+
+#### `:isPooled()`
+
+Returns whether the collider is parked in a pool (released and not yet taken again).
+
+Returns:
+
+* `pooled` `(boolean)` - `true` while the collider is released
 
 ---
 

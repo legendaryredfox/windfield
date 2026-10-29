@@ -361,6 +361,40 @@ function love.load()
     check('ragdoll: destroy removes the parts and joints', #doll.parts.torso.world:getJointsOf(rest_floor) == 0)
     build_world:destroy()
 
+    local recycle_world = wf.newWorld(0, 500, true)
+    recycle_world:addCollisionClass('Ground')
+    recycle_world:addCollisionClass('Ball')
+    recycle_world:newRectangleCollider(0, 300, 400, 20, {collision_class = 'Ground', body_type = 'static'})
+    local created = 0
+    local pool = recycle_world:newPool(function(x, y)
+        created = created + 1
+        return recycle_world:newCircleCollider(x, y, 8, {collision_class = 'Ball'})
+    end, function(pooled, x, y)
+        pooled:setPosition(x, y)
+    end)
+    local pooled = pool:get(100, 0)
+    local landings = 0
+    pooled:onEnter('Ground', function() landings = landings + 1 end)
+    for _ = 1, 90 do recycle_world:update(1 / 60) end
+    check('pool: a fresh collider falls and lands once', landings == 1 and select(2, pooled:getPosition()) < 300, landings)
+    pool:release(pooled)
+    recycle_world:update(1 / 60)
+    check('pool: a released collider is out of queries', recycle_world:getColliderAt(pooled:getPosition()) == nil and #recycle_world:queryCircleArea(100, 292, 30, {'Ball'}) == 0)
+    local parked_y = select(2, pooled:getPosition())
+    for _ = 1, 30 do recycle_world:update(1 / 60) end
+    check('pool: a released collider does not move or generate events', select(2, pooled:getPosition()) == parked_y and not pooled:enter('Ground') and not pooled:stay('Ground'))
+    local reused = pool:get(250, 0)
+    check('pool: the same collider comes back at the reset position, with no velocity', reused == pooled and created == 1
+        and select(1, reused:getPosition()) == 250 and select(2, reused:getLinearVelocity()) == 0, created)
+    for _ = 1, 90 do recycle_world:update(1 / 60) end
+    check('pool: a reused collider lands again with a fresh event', landings == 2 and select(2, reused:getPosition()) < 300, landings)
+    check('pool: draw skips pooled colliders', (function()
+        pool:release(reused)
+        recycle_world:update(1 / 60)
+        return reused:isPooled() and pool:size() == 1
+    end)())
+    recycle_world:destroy()
+
     local fx_world = wf.newWorld(0, 0, true)
     local gust = fx_world:addEffector({shape = 'rectangle', x = 0, y = 0, w = 300, h = 100, gravity = {100, 0}})
     local inside = fx_world:newCircleCollider(50, 50, 10)
