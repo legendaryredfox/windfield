@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+Core features: settings keys, fixed timestep, sensors, raycast, point queries, collider filter, one-way platforms and conveyors, LuaLS types. Source compatible except for the changes listed under Changed.
 
 ### Added
 
@@ -19,6 +21,7 @@
 
 - `Collider:setSensor` and `Collider:isSensor` no longer reach the Box2D fixture. Calling `setSensor(true)` used to make the solid fixture a sensor and the collider reported no events (upstream issue 31); now it makes the whole collider a sensor with events.
 - Collider constructors raise an error for unknown `settings` keys. Before, they were ignored.
+- Colliders switched with `setSensor` and sensor classes are returned by the area, point and ray queries like any other collider; filter by class to leave them out. Before, `setSensor` through the fixture hid the collider from queries.
 - Creating a world no longer resets the physics meter to `32` when the meter was already set by an earlier world.
 
 ## 0.1.0
