@@ -857,6 +857,25 @@ function World:queryLine(x1, y1, x2, y2, collision_class_names)
     return outs
 end
 
+function World:queryPoint(x, y, collision_class_names)
+    local allowed = self:_collisionClassFilter(collision_class_names or all_collision_classes)
+    local found, outs = {}, {}
+    self.box2d_world:queryBoundingBox(x, y, x, y, function(fixture)
+        local collider = fixture:getUserData()
+        if collider and not found[collider] and not collider.destroy_pending and not fixture:isSensor()
+            and (not allowed or allowed[collider.collision_class]) and fixture:testPoint(x, y) then
+            found[collider] = true
+            outs[#outs + 1] = collider
+        end
+        return true
+    end)
+    return outs
+end
+
+function World:getColliderAt(x, y, collision_class_names)
+    return self:queryPoint(x, y, collision_class_names)[1]
+end
+
 function World:raycast(x1, y1, x2, y2, collision_class_names, mode)
     mode = mode or 'all'
     if mode ~= 'all' and mode ~= 'closest' then error("Unknown raycast mode " .. tostring(mode) .. ".") end

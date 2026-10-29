@@ -35,6 +35,8 @@
       * [queryPolygonArea](#querypolygonareavertices-collision_class_names)
       * [queryLine](#querylinex1-y1-x2-y2-collision_class_names)
       * [raycast](#raycastx1-y1-x2-y2-collision_class_names-mode)
+      * [queryPoint](#querypointx-y-collision_class_names)
+      * [getColliderAt](#getcollideratx-y-collision_class_names)
       * [addJoint](#addjointjoint_type-)
       * [removeJoint](#removejointjoint)
       * [setExplicitCollisionEvents](#setexplicitcollisioneventsvalue)
@@ -764,6 +766,47 @@ Returns:
 
 * `all` mode: `table[table]` - The hits, each with `collider`, `x`, `y` (hit point), `nx`, `ny` (surface normal at the hit point) and `fraction` (0 at the start of the ray, 1 at its end). Empty when nothing is hit
 * `closest` mode: `table` - The nearest hit, with the same fields, or `nil` when nothing is hit
+
+---
+
+#### `:queryPoint(x, y, collision_class_names)`
+
+Returns the colliders that contain a point. The test is exact (LÖVE `Fixture:testPoint`), so a point on the edge of a shape counts as inside, and it works for every collider type including circles. Unlike the area queries it has no special rule for areas fully inside a polygon: the point has no size.
+
+```lua
+local colliders = world:queryPoint(love.mouse.getPosition())
+local pickable = world:queryPoint(mx, my, {'All', except = {'Wall'}})
+```
+
+Arguments:
+
+* `x` `(number)` - The x position of the point
+* `y` `(number)` - The y position of the point
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `table[Collider]` - The colliders containing the point, in no particular order. Sensor colliders are included like in the other queries
+
+---
+
+#### `:getColliderAt(x, y, collision_class_names)`
+
+Returns one collider that contains a point, or `nil`. When several colliders overlap at the point, which one is returned is unspecified; use `queryPoint` to get all of them.
+
+```lua
+local collider = world:getColliderAt(mouse_x, mouse_y)
+```
+
+Arguments:
+
+* `x` `(number)` - The x position of the point
+* `y` `(number)` - The y position of the point
+* `[collision_class_names='All']` `(table[string])` - Same format as in `queryLine`
+
+Returns:
+
+* `Collider` `(table)` - A collider containing the point, or `nil`
 
 ---
 

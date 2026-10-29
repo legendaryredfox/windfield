@@ -110,6 +110,14 @@ local function install()
         isSensor = function(self) return self.sensor == true end,
         getShape = function(self) return self.shape end,
         getBody = function(self) return self.body end,
+        testPoint = function(self, x, y)
+            local shape, body = self.shape, self.body
+            if shape.radius then
+                return (x - body.x) ^ 2 + (y - body.y) ^ 2 <= shape.radius ^ 2
+            end
+            local x1, y1, x2, y2 = self:getBoundingBox()
+            return x >= x1 and x <= x2 and y >= y1 and y <= y2
+        end,
         getBoundingBox = function(self)
             local shape, body = self.shape, self.body
             if shape.radius then

@@ -176,6 +176,18 @@ function World:queryPolygonArea(vertices, collision_class_names) end
 ---@return windfield.Collider[]
 function World:queryLine(x1, y1, x2, y2, collision_class_names) end
 
+---@param x number
+---@param y number
+---@param collision_class_names? windfield.ClassNames Default {'All'}.
+---@return windfield.Collider[]
+function World:queryPoint(x, y, collision_class_names) end
+
+---@param x number
+---@param y number
+---@param collision_class_names? windfield.ClassNames Default {'All'}.
+---@return windfield.Collider?
+function World:getColliderAt(x, y, collision_class_names) end
+
 ---@class windfield.RayHit
 ---@field collider windfield.Collider
 ---@field x number Hit point x.
